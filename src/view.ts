@@ -1,11 +1,9 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
 
 export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<TreeItem | undefined | null | void> = new vscode.EventEmitter<TreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
-    private connectionStatus: string = 'disconnected';
     private selectedPort: string | undefined | null;
     private selectedSocket: string | undefined | null;
     private isMinimalMode: boolean = false;
@@ -222,7 +220,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
             new TreeItem(
                 'Check for Jac Updates',
                 vscode.TreeItemCollapsibleState.None,
-                new vscode.ThemeIcon('sync'),  
+                new vscode.ThemeIcon('sync'),
                 'check-updates',
                 'jaculus.CheckForUpdates',
                 'Check for Jaculus tools updates'
@@ -288,9 +286,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
     }
 
     // Method to update connection status from the main extension
-    public updateConnectionStatus(status: string, port?: string | null, socket?: string | null): void {
-        this.connectionStatus = status;
-
+    public updateConnectionStatus(port?: string | null, socket?: string | null): void {
         this.selectedPort = port;
         this.selectedSocket = socket;
 
@@ -321,18 +317,18 @@ class TreeItem extends vscode.TreeItem {
         public readonly command?: vscode.Command
     ) {
         super(label, collapsibleState);
-        
+
         this.tooltip = tooltipText || label;
         this.contextValue = contextValue;
         this.command = command;
-        
+
         if (commandId) {
             this.command = {
                 command: commandId,
                 title: label
             };
         }
-        
+
         if (iconPath) {
             this.iconPath = iconPath;
         }

@@ -50,7 +50,7 @@ const BOARD_VERSIONS_JSON = "versions.json";
 
 class JaculusInterface {
     private viewProvider: JaculusViewProvider;
-    
+
     private selectComPortBtn: vscode.StatusBarItem | null = null;
     private terminalJaculus: vscode.Terminal | null = null;
 
@@ -64,7 +64,7 @@ class JaculusInterface {
 
     constructor(private context: vscode.ExtensionContext, viewProvider: JaculusViewProvider, private extensionPath: string, private jacToolCommand: string) {
         this.viewProvider = viewProvider;
-        
+
         this.selectedComPort = this.context.globalState.get(ContextKey.selectedComPort) || null; // if com port is selected from previous session, find it
         this.selectedSocket = this.context.globalState.get(ContextKey.selectedSocket) || null; // if socket is selected from previous session, find it
         this.selectedSocketMemory = this.context.globalState.get(ContextKey.selectedSocketMemory) || []; // if socket is selected from previous session, find it
@@ -128,7 +128,7 @@ class JaculusInterface {
                     this.context.globalState.update(ContextKey.selectedSocket, this.selectedSocket);
                     this.lastSelectedConnection = ConectionType.socket;
 
-                    this.viewProvider.updateConnectionStatus("connected", undefined, this.selectedSocket);
+                    this.viewProvider.updateConnectionStatus(undefined, this.selectedSocket);
 
                     // Save selected socket to memory (max 5)
                     if (this.selectedSocketMemory.includes(this.selectedSocket)) {
@@ -153,9 +153,9 @@ class JaculusInterface {
                     this.lastSelectedConnection = ConectionType.comPort;
 
                     if (selected.type === 'socket') {
-                        this.viewProvider.updateConnectionStatus("connected", undefined, this.selectedComPort);
+                        this.viewProvider.updateConnectionStatus(undefined, this.selectedComPort);
                     } else {
-                        this.viewProvider.updateConnectionStatus("connected", this.selectedComPort, undefined);
+                        this.viewProvider.updateConnectionStatus(this.selectedComPort, undefined);
                     }
                 }
                 this.context.globalState.update(ContextKey.lastSelectedConnection, this.lastSelectedConnection);
@@ -168,11 +168,11 @@ class JaculusInterface {
         if (this.lastSelectedConnection === ConectionType.comPort) {
             this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug) COM: ", this.selectedComPort!.replace('/dev/tty.', '')));
             vscode.window.showInformationMessage(`Selected COM port: ${this.selectedComPort}`);
-            this.viewProvider.updateConnectionStatus("connected", this.selectedComPort, undefined);
+            this.viewProvider.updateConnectionStatus(this.selectedComPort, undefined);
         } else if (this.lastSelectedConnection === ConectionType.socket) {
             this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug) Socket: ", this.selectedSocket!));
             vscode.window.showInformationMessage(`Selected Socket: ${this.selectedSocket}`);
-            this.viewProvider.updateConnectionStatus("connected", undefined, this.selectedSocket);
+            this.viewProvider.updateConnectionStatus(undefined, this.selectedSocket);
         } else {
             this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug)", "Select Port"));
         }
@@ -662,7 +662,7 @@ async function createProject(context: vscode.ExtensionContext) {
     }
 
     context.globalState.update('jaculus.lastProjectPath', folderUri[0].fsPath);
-    
+
     const projectName = await vscode.window.showInputBox({ placeHolder: 'Enter project name', prompt: 'Project name' });
     if (!projectName) {
         vscode.window.showErrorMessage('Project name is required');
@@ -688,15 +688,15 @@ async function createProject(context: vscode.ExtensionContext) {
         return;
     }
 
-    exec(`${JAC_TOOL_COMMAND} project-create --package "${packageUrl}" "${projectPath}"`, {cwd: path.dirname(projectPath)}, (error) => {   
+    exec(`${JAC_TOOL_COMMAND} project-create --package "${packageUrl}" "${projectPath}"`, {cwd: path.dirname(projectPath)}, (error) => {
         if (error) {
             vscode.window.showErrorMessage(`Error creating project: ${error.message}`);
             return;
         }
-        
+
         // Open the newly created project folder
         vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(projectPath), false)
-        
+
         vscode.window.showInformationMessage(`Project ${projectName} created successfully at ${projectPath}`);
     });
 }
@@ -709,7 +709,7 @@ function checkForTsConfigInRoot(): boolean {
     if (!vscode.workspace.workspaceFolders) {
         return false;
     }
-    
+
     // Check only the root of each workspace folder
     for (const folder of vscode.workspace.workspaceFolders) {
         const tsconfigPath = path.join(folder.uri.fsPath, 'tsconfig.json');
@@ -717,7 +717,7 @@ function checkForTsConfigInRoot(): boolean {
             return true;
         }
     }
-    
+
     return false;
 }
 
@@ -738,7 +738,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
         const jaculusProvider = new JaculusViewProvider(context);
-        
+
         if (checkForTsConfigInRoot()) {
             const treeView = vscode.window.createTreeView('jaculusView', {
                 treeDataProvider: jaculusProvider,
