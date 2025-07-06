@@ -70,19 +70,19 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
             ),
             new TreeItem(
                 'WiFi Configuration',
-                vscode.TreeItemCollapsibleState.Collapsed,
+                vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('rss'),
                 'wifi'
             ),
             new TreeItem(
                 'Settings',
-                vscode.TreeItemCollapsibleState.Collapsed,
+                vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('gear'),
                 'settings'
             ),
             new TreeItem(
                 'Project Management',
-                vscode.TreeItemCollapsibleState.Collapsed,
+                vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('folder'),
                 'project-management'
             )
