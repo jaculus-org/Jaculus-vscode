@@ -166,15 +166,15 @@ class JaculusInterface {
 
     private updateSelectedPortMenu(): void {
         if (this.lastSelectedConnection === ConectionType.comPort) {
-            this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug) COM: ", this.selectedComPort!.replace('/dev/tty.', '')));
+            this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug) COM", `: ${this.selectedComPort!.replace('/dev/tty.', '')}`));
             vscode.window.showInformationMessage(`Selected COM port: ${this.selectedComPort}`);
             this.viewProvider.updateConnectionStatus(this.selectedComPort, undefined);
         } else if (this.lastSelectedConnection === ConectionType.socket) {
-            this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug) Socket: ", this.selectedSocket!));
+            this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug) Sock", `et: ${this.selectedSocket!}`));
             vscode.window.showInformationMessage(`Selected Socket: ${this.selectedSocket}`);
             this.viewProvider.updateConnectionStatus(undefined, this.selectedSocket);
         } else {
-            this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug)", "Select Port"));
+            this.selectComPortBtn && (this.selectComPortBtn.text = this.getButtonText("$(plug)", " Select Port"));
         }
     }
 
