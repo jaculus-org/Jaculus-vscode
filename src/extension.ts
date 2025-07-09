@@ -88,9 +88,11 @@ class JaculusInterface {
                 vscode.window.showErrorMessage(`Error: ${error.message}`);
                 return;
             }
+            const socketSelectionLabel = "Remote socket";
+
             let ports = this.parseSerialPorts(stdout);
             let items = ports.map(port => ({ label: port.path, description: port.manufacturer, type: 'port' }));
-            items.push({ label: "Socket", description: "Enter IP and port of your Jaculus device", type: 'socket' });
+            items.push({ label: socketSelectionLabel, description: "Enter IP and port of your Jaculus device", type: 'socket' });
             items = [...items, ...this.selectedSocketMemory.map(socket => ({ label: socket, description: "Previously selected socket", type: 'socket' }))];
 
             // show quick pick menu with available ports and Socket option
@@ -100,15 +102,20 @@ class JaculusInterface {
                     return;
                 }
 
-                if (selected.label === "Socket") {
+                if (selected.label === socketSelectionLabel) {
                     const socketTmp = await vscode.window.showInputBox({
                         placeHolder: 'Enter ip and port of your jaculus device',
                         title: 'Select Socket',
                         prompt: `IP:PORT (default port: ${DEFAULT_PORT})`,
                         validateInput: (text: string): string | undefined => {
-                            if (text.trim().length === 0) {
+                            const trimmed = text.trim();
+                            if (trimmed.length === 0) {
                                 return 'Input cannot be empty';
                             }
+                            if (trimmed.search("://") !== -1) {
+                                return `Input should not contain protocol (i.e. ${trimmed.split("://")[0]}://)`;
+                            }
+
                             return undefined;
                         }
                     });
@@ -150,11 +157,12 @@ class JaculusInterface {
                 } else {
                     this.selectedComPort = selected.label;
                     this.context.globalState.update(ContextKey.selectedComPort, selected.label);
-                    this.lastSelectedConnection = ConectionType.comPort;
 
                     if (selected.type === 'socket') {
+                        this.lastSelectedConnection = ConectionType.socket;
                         this.viewProvider.updateConnectionStatus(undefined, this.selectedComPort);
                     } else {
+                        this.lastSelectedConnection = ConectionType.comPort;
                         this.viewProvider.updateConnectionStatus(this.selectedComPort, undefined);
                     }
                 }
@@ -512,7 +520,7 @@ class JaculusInterface {
     }
 
     public getButtonText(icon: string, text: string): string {
-        return this.minimalMode ? icon : `${icon} ${text}`;
+        return this.minimalMode ? icon : `${icon}${text}`;
     }
     private async getBoardsIndex(): Promise<BoardsIndex> {
         const url = `${BOARD_INDEX_URL}/${BOARDS_INDEX_JSON}`;
@@ -607,14 +615,14 @@ class JaculusInterface {
 
         let monitorBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
         monitorBtn.command = "jaculus.Monitor";
-        monitorBtn.text = this.getButtonText("$(device-desktop)", "Monitor");
+        monitorBtn.text = this.getButtonText("$(device-desktop)", " Monitor");
         monitorBtn.tooltip = "Jaculus Monitor";
         monitorBtn.color = color;
         monitorBtn.show();
 
         let buildFlashMonitorBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
         buildFlashMonitorBtn.command = "jaculus.BuildFlashMonitor";
-        buildFlashMonitorBtn.text = this.getButtonText("$(diff-renamed)", "Build, Flash and Monitor");
+        buildFlashMonitorBtn.text = this.getButtonText("$(diff-renamed)", " Build, Flash and Monitor");
         buildFlashMonitorBtn.tooltip = "Jaculus Build, Flash and Monitor";
         buildFlashMonitorBtn.color = color;
         buildFlashMonitorBtn.show();

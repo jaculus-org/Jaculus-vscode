@@ -106,14 +106,16 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 `Port: ${this.selectedPort}`,
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('info'),
-                'port-info'
+                'port-info',
+                'jaculus.SelectComPort'
             ));
         } else if (this.selectedSocket) {
             items.push(new TreeItem(
                 `Socket: ${this.selectedSocket}`,
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('info'),
-                'socket-info'
+                'socket-info',
+                'jaculus.SelectComPort'
             ));
         }
 
