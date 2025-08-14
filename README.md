@@ -7,7 +7,7 @@ Visit the project [homepage](https://jaculus.org/getting-started/).
 
 ## Features
 
-Currently supports ESP32 and ESP32-S3 SoCs ([Github](https://github.com/cubicap/Jaculus-esp32)).
+Currently supports ESP32 and ESP32-S3 SoCs ([Github](https://github.com/jaculus-org/Jaculus-esp32)).
 
 
 ## Requirements

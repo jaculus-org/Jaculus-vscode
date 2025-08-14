@@ -10,7 +10,7 @@
     "pricing": "Free",
     "repository": {
         "type": "git",
-        "url": "https://github.com/cubicap/Jaculus-vscode.git"
+        "url": "https://github.com/jaculus-org/Jaculus-vscode.git"
     },
     "author": {
         "name": "Petr Kubica (cubicap)",
