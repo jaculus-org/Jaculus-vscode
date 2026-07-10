@@ -1,14 +1,21 @@
 {
     "compilerOptions": {
-        "module": "commonjs",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
         "target": "ES2020",
         "outDir": "out",
         "lib": [
             "ES2020"
         ],
+        "types": [
+            "node",
+            "vscode",
+            "mocha"
+        ],
         "sourceMap": true,
         "rootDir": "src",
         "strict": true,
-        "noImplicitReturns": true
+        "noImplicitReturns": true,
+        "skipLibCheck": true
     }
 }

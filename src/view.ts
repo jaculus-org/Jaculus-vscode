@@ -1,16 +1,17 @@
 import * as vscode from 'vscode';
 
-export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<TreeItem | undefined | null | void> = new vscode.EventEmitter<TreeItem | undefined | null | void>();
-    readonly onDidChangeTreeData: vscode.Event<TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+export class JaculusViewProvider implements vscode.TreeDataProvider<JaculusTreeItem> {
+    private _onDidChangeTreeData: vscode.EventEmitter<JaculusTreeItem | undefined | null | void> = new vscode.EventEmitter<JaculusTreeItem | undefined | null | void>();
+    readonly onDidChangeTreeData: vscode.Event<JaculusTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
     private selectedPort: string | undefined | null;
     private selectedSocket: string | undefined | null;
     private isMinimalMode: boolean = false;
-    private logLevel: string = 'info'; // Default log level
+    private logLevel: string = 'info';
+    private installedLibraries: Array<{ name: string; version: string }> = [];
 
     constructor(context: vscode.ExtensionContext) {
-        const refreshCommand = vscode.commands.registerCommand('jaculus.refreshTree', () => this.refresh());
+        context.subscriptions.push(vscode.commands.registerCommand('jaculus.refreshTree', () => this.refresh()));
 
         this.isMinimalMode = context.globalState.get('minimalMode', false);
     }
@@ -19,11 +20,11 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         this._onDidChangeTreeData.fire();
     }
 
-    getTreeItem(element: TreeItem): vscode.TreeItem {
+    getTreeItem(element: JaculusTreeItem): vscode.TreeItem {
         return element;
     }
 
-    getChildren(element?: TreeItem): Thenable<TreeItem[]> {
+    getChildren(element?: JaculusTreeItem): Thenable<JaculusTreeItem[]> {
         if (!element) {
             return Promise.resolve(this.getRootItems());
         }
@@ -39,6 +40,8 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 return Promise.resolve(this.getWiFiItems());
             case 'settings':
                 return Promise.resolve(this.getSettingsItems());
+            case 'libraries':
+                return Promise.resolve(this.getLibraryItems());
             case 'project-management':
                 return Promise.resolve(this.getProjectManagementItems());
             default:
@@ -46,39 +49,45 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         }
     }
 
-    private getRootItems(): TreeItem[] {
+    private getRootItems(): JaculusTreeItem[] {
         return [
-            new TreeItem(
+            new JaculusTreeItem(
                 'Connection',
                 vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('plug'),
                 'connection'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Build & Flash',
                 vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('tools'),
                 'build'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Device Control',
                 vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('device-desktop'),
                 'device'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'WiFi Configuration',
                 vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('rss'),
                 'wifi'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Settings',
                 vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('gear'),
                 'settings'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
+                'Libraries',
+                vscode.TreeItemCollapsibleState.Expanded,
+                new vscode.ThemeIcon('library'),
+                'libraries'
+            ),
+            new JaculusTreeItem(
                 'Project Management',
                 vscode.TreeItemCollapsibleState.Expanded,
                 new vscode.ThemeIcon('folder'),
@@ -87,11 +96,10 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         ];
     }
 
-    private getConnectionItems(): TreeItem[] {
-        const items: TreeItem[] = [];
+    private getConnectionItems(): JaculusTreeItem[] {
+        const items: JaculusTreeItem[] = [];
 
-        // Port selection
-        items.push(new TreeItem(
+        items.push(new JaculusTreeItem(
             'Select Port',
             vscode.TreeItemCollapsibleState.None,
             new vscode.ThemeIcon('selection'),
@@ -100,9 +108,8 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
             'Select COM port or Socket connection'
         ));
 
-        // Selected port info
         if (this.selectedPort) {
-            items.push(new TreeItem(
+            items.push(new JaculusTreeItem(
                 `Port: ${this.selectedPort}`,
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('info'),
@@ -110,7 +117,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.SelectComPort'
             ));
         } else if (this.selectedSocket) {
-            items.push(new TreeItem(
+            items.push(new JaculusTreeItem(
                 `Socket: ${this.selectedSocket}`,
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('info'),
@@ -122,9 +129,9 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         return items;
     }
 
-    private getBuildItems(): TreeItem[] {
+    private getBuildItems(): JaculusTreeItem[] {
         return [
-            new TreeItem(
+            new JaculusTreeItem(
                 'Build',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('database'),
@@ -132,7 +139,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.Build',
                 'Build the project'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Flash',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('zap'),
@@ -140,7 +147,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.Flash',
                 'Flash firmware to device'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Monitor',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('eye'),
@@ -148,7 +155,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.Monitor',
                 'Monitor device output'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Build, Flash & Monitor',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('diff-renamed'),
@@ -159,9 +166,9 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         ];
     }
 
-    private getDeviceItems(): TreeItem[] {
+    private getDeviceItems(): JaculusTreeItem[] {
         return [
-            new TreeItem(
+            new JaculusTreeItem(
                 'Start Program',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('play-circle'),
@@ -169,7 +176,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.Start',
                 'Start the program on device'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Stop Program',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('stop-circle'),
@@ -177,7 +184,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.Stop',
                 'Stop the program on device'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Show Version',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('versions'),
@@ -185,7 +192,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.ShowVersion',
                 'Show device version information'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Show Status',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('pulse'),
@@ -193,7 +200,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.ShowStatus',
                 'Show device status'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Format Storage',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('trash'),
@@ -204,9 +211,9 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         ];
     }
 
-    private getWiFiItems(): TreeItem[] {
+    private getWiFiItems(): JaculusTreeItem[] {
         return [
-            new TreeItem(
+            new JaculusTreeItem(
                 'Configure WiFi',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('settings-gear'),
@@ -217,9 +224,9 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         ];
     }
 
-    private getSettingsItems(): TreeItem[] {
-        let items: TreeItem[] = [
-            new TreeItem(
+    private getSettingsItems(): JaculusTreeItem[] {
+        let items: JaculusTreeItem[] = [
+            new JaculusTreeItem(
                 'Check for Jac Updates',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('sync'),
@@ -230,7 +237,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         ];
 
         if (this.isMinimalMode) {
-            items.push(new TreeItem(
+            items.push(new JaculusTreeItem(
                 'Disable Minimal Mode',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('eye-closed'),
@@ -239,7 +246,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'Disable minimal mode'
             ));
         } else {
-            items.push(new TreeItem(
+            items.push(new JaculusTreeItem(
                 'Enable Minimal Mode',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('eye'),
@@ -249,7 +256,7 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
             ));
         }
 
-        items.push(new TreeItem(
+        items.push(new JaculusTreeItem(
             `Set Log Level (${this.logLevel})`,
             vscode.TreeItemCollapsibleState.None,
             new vscode.ThemeIcon('debug'),
@@ -258,12 +265,58 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
             'Set log level for Jaculus'
         ));
 
-        return items
+        return items;
     }
 
-    private getProjectManagementItems(): TreeItem[] {
+    private getLibraryItems(): JaculusTreeItem[] {
+        const items: JaculusTreeItem[] = [
+            new JaculusTreeItem(
+                'Install Library',
+                vscode.TreeItemCollapsibleState.None,
+                new vscode.ThemeIcon('cloud-download'),
+                'install-library',
+                'jaculus.InstallLibrary',
+                'Install a library from the configured Jaculus registry'
+            ),
+            new JaculusTreeItem(
+                'Remove Library',
+                vscode.TreeItemCollapsibleState.None,
+                new vscode.ThemeIcon('trash'),
+                'remove-library',
+                'jaculus.RemoveLibrary',
+                'Remove an installed library from the project'
+            ),
+        ];
+
+        if (this.installedLibraries.length === 0) {
+            items.push(new JaculusTreeItem(
+                'No installed libraries',
+                vscode.TreeItemCollapsibleState.None,
+                new vscode.ThemeIcon('info'),
+                'library-info',
+                undefined,
+                'No direct project libraries are currently installed'
+            ));
+            return items;
+        }
+
+        for (const library of this.installedLibraries) {
+            items.push(new JaculusTreeItem(
+                `${library.name}@${library.version}`,
+                vscode.TreeItemCollapsibleState.None,
+                new vscode.ThemeIcon('package'),
+                'library-item',
+                undefined,
+                library.name
+            ));
+        }
+
+        return items;
+    }
+
+    private getProjectManagementItems(): JaculusTreeItem[] {
         return [
-            new TreeItem(
+            new JaculusTreeItem(
                 'Create New Project',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('new-file'),
@@ -271,12 +324,12 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
                 'jaculus.CreateProject',
                 'Create a new Jaculus project'
             ),
-            new TreeItem(
+            new JaculusTreeItem(
                 'Update Project',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('sync'),
-                'updateProject',
-                '',
+                'update-project',
+                undefined,
                 'Update the current Jaculus project',
                 {
                     command: 'jaculus.UpdateProject',
@@ -287,7 +340,6 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         ];
     }
 
-    // Method to update connection status from the main extension
     public updateConnectionStatus(port?: string | null, socket?: string | null): void {
         this.selectedPort = port;
         this.selectedSocket = socket;
@@ -295,24 +347,27 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<TreeItem> {
         this.refresh();
     }
 
-    // Method to update minimal mode status
     public updateMinimalMode(isMinimal: boolean): void {
         this.isMinimalMode = isMinimal;
         this.refresh();
     }
 
-    // Method to update log level
     public updateLogLevel(level: string): void {
         this.logLevel = level;
         this.refresh();
     }
+
+    public updateInstalledLibraries(libraries: Array<{ name: string; version: string }>): void {
+        this.installedLibraries = libraries;
+        this.refresh();
+    }
 }
 
-class TreeItem extends vscode.TreeItem {
+class JaculusTreeItem extends vscode.TreeItem {
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly iconPath?: string | vscode.ThemeIcon | vscode.Uri | { light: string | vscode.Uri; dark: string | vscode.Uri },
+        public readonly iconPath?: string | vscode.ThemeIcon | vscode.Uri | { light: vscode.Uri; dark: vscode.Uri },
         public readonly contextValue?: string,
         public readonly commandId?: string,
         public readonly tooltipText?: string,

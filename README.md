@@ -12,17 +12,13 @@ Currently supports ESP32 and ESP32-S3 SoCs ([Github](https://github.com/jaculus-
 
 ## Requirements
 
-The first step is to install the Jaculus CLI tool:
+The extension now uses the Jaculus libraries directly instead of wrapping the `jac` CLI.
 
-```bash
-npm install -g jaculus-tools
-```
+For end users, that means:
+- no separate global `jaculus-tools` installation is required
+- project, device, firmware, and WiFi operations run directly inside the extension
 
-Then, you can run the tools using:
-
-```bash
-npx jac
-```
+For local extension development in this repository, the Jaculus tools monorepo is expected at `../tools` unless the `@jaculus/*` packages and `serialport` are installed as regular dependencies.
 
 ## Known Issues
 

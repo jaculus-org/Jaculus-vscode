@@ -1,28 +1,34 @@
 import * as path from 'path';
-import * as Mocha from 'mocha';
-import * as glob from 'glob';
+import { fileURLToPath, pathToFileURL } from 'url';
+import Mocha from 'mocha';
+import glob from 'glob';
+
+const fileName = fileURLToPath(import.meta.url);
+const dirName = path.dirname(fileName);
 
 export function run(): Promise<void> {
-    // Create the mocha test
     const mocha = new Mocha({
         ui: 'tdd',
         color: true
     });
 
-    const testsRoot = path.resolve(__dirname, '..');
+    const testsRoot = path.resolve(dirName, '..');
 
     return new Promise((c, e) => {
-        glob('**/**.test.js', { cwd: testsRoot }, (err, files) => {
+        glob('**/**.test.js', { cwd: testsRoot }, async (err: Error | null, files: string[]) => {
             if (err) {
                 return e(err);
             }
 
-            // Add files to the test suite
-            files.forEach(f => mocha.addFile(path.resolve(testsRoot, f)));
-
             try {
-                // Run the mocha test
-                mocha.run(failures => {
+                // ESM imports run before mocha.run(), so install the TDD globals first.
+                mocha.suite.emit('pre-require', globalThis, '', mocha);
+
+                for (const file of files) {
+                    await import(pathToFileURL(path.resolve(testsRoot, file)).href);
+                }
+
+                mocha.run((failures: number) => {
                     if (failures > 0) {
                         e(new Error(`${failures} tests failed.`));
                     } else {
