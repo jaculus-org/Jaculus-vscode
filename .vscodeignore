@@ -8,5 +8,6 @@ vsc-extension-quickstart.md
 **/.eslintrc.json
 **/*.map
 **/*.ts
+!node_modules/typescript/lib/*.d.ts
 # vsix
 *.vsix
