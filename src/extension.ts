@@ -13,6 +13,7 @@ import {
     disableWifi,
     destroyDevice,
     formatStorage,
+    getSkippedBuildMessage,
     getBoardFirmwareUrl,
     installFirmwarePackage,
     installLibraryVersion,
@@ -31,6 +32,7 @@ import {
     setWifiStationMode,
     startProgram,
     stopProgram,
+    shouldBuildProject,
     flashProject,
 } from './jaculus/integration.js';
 import type { JaculusLogger, BoardVariant, BoardVersion } from './jaculus/integration.js';
@@ -184,7 +186,15 @@ class JaculusInterface {
         }
     }
 
-    private async build(): Promise<boolean> {
+    private async build(showSkippedMessage = true): Promise<boolean> {
+        if (!shouldBuildProject(this.projectPath)) {
+            const message = getSkippedBuildMessage(showSkippedMessage);
+            if (message) {
+                vscode.window.showInformationMessage(message);
+            }
+            return true;
+        }
+
         try {
             const saved = await vscode.workspace.saveAll(false);
             if (!saved) {
@@ -343,7 +353,7 @@ class JaculusInterface {
     }
 
     private async buildFlashMonitor(): Promise<void> {
-        if (!await this.build() || !await this.flash(false)) {
+        if (!await this.build(false) || !await this.flash(false)) {
             return;
         }
 
@@ -844,7 +854,7 @@ class JaculusInterface {
     }
 
 
-    public async registerCommands() {
+    public registerCommands(): void {
         let color = this.minimalMode ? "#e9b780" : "#ff8500";
 
         this.selectComPortBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -899,7 +909,7 @@ class JaculusInterface {
             vscode.commands.registerCommand('jaculus.UpdateProject', () => this.updateProject()),
         );
 
-        await this.refreshInstalledLibraries();
+        this.refreshInstalledLibraries();
         this.checkForUpdates();
     }
 
@@ -988,7 +998,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(treeView);
 
     const jaculus = new JaculusInterface(context, jaculusProvider, projectFolder.uri.fsPath);
-    await jaculus.registerCommands();
+    jaculus.registerCommands();
 }
 
 export function deactivate() { }

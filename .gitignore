@@ -90,6 +90,10 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+.jacly/
+media/
+syntaxes/
+images/jacly.png
 
 # Gatsby files
 .cache/

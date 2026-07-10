@@ -27,6 +27,23 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
+        "languages": [{
+            "id": "jacly",
+            "aliases": ["Jacly", "jacly"],
+            "extensions": [".jacly"],
+            "icon": { "light": "./images/jacly.png", "dark": "./images/jacly.png" }
+        }],
+        "grammars": [{
+            "language": "jacly",
+            "scopeName": "source.jacly",
+            "path": "./syntaxes/jacly.tmLanguage.json"
+        }],
+        "jsonLanguageParticipants": [{ "languageId": "jacly" }],
+        "customEditors": [{
+            "viewType": "jacly.editor",
+            "displayName": "Jacly Editor",
+            "selector": [{ "filenamePattern": "*.jacly" }]
+        }],
         "commands": [
             {
                 "command": "jaculus.Build",
@@ -168,9 +185,9 @@
         ]
     },
     "scripts": {
+        "fetch:jacly": "node scripts/fetch-jacly.mjs",
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
+        "compile": "npm run fetch:jacly && node esbuild.cjs --production",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src --ext ts",
         "test": "node ./out/test/runTest.js"
@@ -179,21 +196,36 @@
         "@types/glob": "^8.1.0",
         "@types/mocha": "^10.0.2",
         "@types/node": "^18.18.0",
+        "@types/react": "^18.2.79",
+        "@types/react-dom": "^18.2.25",
         "@types/vscode": "1.92.0",
         "@typescript-eslint/eslint-plugin": "^5.62.0",
         "@typescript-eslint/parser": "^5.62.0",
         "@vscode/test-electron": "^2.3.5",
+        "esbuild": "^0.25.8",
         "eslint": "^8.51.0",
         "glob": "^8.1.0",
         "mocha": "^10.2.0",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
         "typescript": "^5.2.2"
     },
     "dependencies": {
+        "@blockly/field-angle": "^6.0.9",
+        "@blockly/field-colour": "^6.0.12",
+        "@blockly/field-slider": "^8.0.9",
+        "@blockly/plugin-cross-tab-copy-paste": "^8.0.8",
+        "@blockly/workspace-backpack": "^7.0.11",
         "@jaculus/common": "^0.1.0",
         "@jaculus/device": "^0.1.0",
         "@jaculus/firmware": "^0.1.0",
         "@jaculus/project": "^0.1.2",
+        "@kuband/react-blockly": "^10.0.1",
+        "blockly": "^12.4.1",
         "chalk": "^5.6.2",
-        "serialport": "^13.0.0"
+        "lucide-react": "^0.577.0",
+        "lucide-static": "^0.577.0",
+        "serialport": "^13.0.0",
+        "zod": "^4.3.6"
     }
 }

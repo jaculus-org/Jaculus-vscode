@@ -5,12 +5,13 @@ import {
     createProjectFromArchiveData,
     createProjectFromPackage,
     createProjectFromTemplate,
+    getProjectTypeOptions,
     listLibraryVersions,
     listProjectTemplates,
     updateProjectFromPackage,
 } from './integration.js';
 import { createLogger, LogLevel } from './logging.js';
-import type { JaculusLogger } from './integration.js';
+import type { JaculusLogger, ProjectType } from './integration.js';
 import { DEFAULT_TERMINAL_NAME } from './monitorTerminal.js';
 
 export type ProjectImportSource =
@@ -29,6 +30,15 @@ export async function updateProjectFromPrompt(
         value: context.globalState.get('jaculus.lastPackageUrl') as string || '',
     });
 
+    if (packageUrl === undefined) {
+        return;
+    }
+
+    if (packageUrl.trim() === '') {
+        vscode.window.showErrorMessage('Package URL is required');
+        return;
+    }
+
     const projectName = path.basename(projectPath);
     const authorized = await vscode.window.showWarningMessage(
         `This will update your Jaculus project in directory "${projectPath}". Some files may be overwritten.\nDo you want to continue?`,
@@ -36,11 +46,6 @@ export async function updateProjectFromPrompt(
         'Yes',
     );
     if (authorized !== 'Yes') {
-        return;
-    }
-
-    if (!packageUrl) {
-        vscode.window.showErrorMessage('Package URL is required');
         return;
     }
 
@@ -85,10 +90,11 @@ export function parseProjectImportSource(uri: vscode.Uri): ProjectImportSource {
 async function selectProjectImportSource(
     context: vscode.ExtensionContext,
     projectPath: string,
-    logger: JaculusLogger
+    logger: JaculusLogger,
+    projectType: ProjectType
 ): Promise<ProjectImportSource | undefined> {
     const customUrlLabel = 'Custom package URL';
-    const templates = await listProjectTemplates(projectPath, logger);
+    const templates = await listProjectTemplates(projectPath, logger, projectType);
     const source = await vscode.window.showQuickPick(
         [
             ...templates.map((template) => ({
@@ -208,6 +214,17 @@ export async function createProjectWithSource(
 
     const projectPath = path.join(folderUri[0].fsPath, projectName);
 
+    let projectType: ProjectType = 'code';
+    if (!presetSource) {
+        const selectedProjectType = await vscode.window.showQuickPick(getProjectTypeOptions(), {
+            placeHolder: 'Select project type',
+        });
+        if (!selectedProjectType) {
+            return;
+        }
+        projectType = selectedProjectType.projectType;
+    }
+
     const outputChannel = vscode.window.createOutputChannel('Jaculus');
     const persistedLogLevel = context.globalState.get<LogLevel>('debugMode');
     const logLevel = Object.values(LogLevel).includes(persistedLogLevel as LogLevel)
@@ -216,7 +233,8 @@ export async function createProjectWithSource(
     const logger = createLogger(outputChannel, logLevel);
 
     try {
-        const source = presetSource ?? await selectProjectImportSource(context, projectPath, logger);
+        const source = presetSource
+            ?? await selectProjectImportSource(context, projectPath, logger, projectType);
         if (!source) {
             return;
         }

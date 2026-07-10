@@ -56,7 +56,29 @@ export type ProjectTemplate = {
     templatePriority?: number;
 };
 
+export type ProjectType = 'code' | 'jacly';
+
+export type ProjectTypeOption = {
+    label: string;
+    projectType: ProjectType;
+};
+
 export type { BoardVariant, BoardVersion };
+
+export function shouldBuildProject(projectPath: string): boolean {
+    return fs.existsSync(path.join(projectPath, 'tsconfig.json'));
+}
+
+export function getSkippedBuildMessage(showMessage: boolean): string | undefined {
+    return showMessage ? 'Nothing to build' : undefined;
+}
+
+export function getProjectTypeOptions(): ProjectTypeOption[] {
+    return [
+        { label: 'Text project', projectType: 'code' },
+        { label: 'Jacly project', projectType: 'jacly' },
+    ];
+}
 
 function createRequestFunction(): RequestFunction {
     return async (baseUri: string, libFile: string): Promise<Uint8Array> => {
@@ -469,10 +491,11 @@ export async function listAvailableLibraries(
 
 export async function listProjectTemplates(
     projectPath: string,
-    logger: JaculusLogger
+    logger: JaculusLogger,
+    projectType: ProjectType = 'code'
 ): Promise<ProjectTemplate[]> {
     const registry = await getRegistry(projectPath, logger);
-    return registry.listTemplates('code');
+    return registry.listTemplates(projectType);
 }
 
 async function createProjectFromBundle(
