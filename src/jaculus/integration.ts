@@ -392,6 +392,14 @@ export async function destroyDevice(device: JacDevice): Promise<void> {
     await device.destroy();
 }
 
+export function runUntilDeviceEnd<T>(device: JacDevice, action: Promise<T>): Promise<T> {
+    const disconnected = new Promise<never>((_, reject) => {
+        device.onEnd(() => reject(new Error('Device disconnected')));
+    });
+
+    return Promise.race([action, disconnected]);
+}
+
 async function withDevice<T>(
     target: ConnectionTarget,
     logger: JaculusLogger,
@@ -399,7 +407,7 @@ async function withDevice<T>(
 ): Promise<T> {
     const device = await connectToDevice(target, logger);
     try {
-        return await action(device);
+        return await runUntilDeviceEnd(device, action(device));
     } finally {
         await destroyDevice(device);
     }
