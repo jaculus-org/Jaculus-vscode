@@ -82,10 +82,12 @@ export function getProjectTypeOptions(): ProjectTypeOption[] {
 
 function createRequestFunction(): RequestFunction {
     return async (baseUri: string, libFile: string): Promise<Uint8Array> => {
-        const uri = new URL(
-            libFile.replace(/^\/+/, ''),
-            baseUri.endsWith('/') ? baseUri : `${baseUri}/`
-        ).toString();
+        const uri = libFile === ''
+            ? baseUri
+            : new URL(
+                libFile.replace(/^\/+/, ''),
+                baseUri.endsWith('/') ? baseUri : `${baseUri}/`
+            ).toString();
 
         if (uri.startsWith('file:')) {
             const filePath = fileURLToPath(uri);
