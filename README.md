@@ -12,17 +12,7 @@ Currently supports ESP32 and ESP32-S3 SoCs ([Github](https://github.com/jaculus-
 
 ## Requirements
 
-The first step is to install the Jaculus CLI tool:
-
-```bash
-npm install -g jaculus-tools
-```
-
-Then, you can run the tools using:
-
-```bash
-npx jac
-```
+The extension packs Jaculus-tools into the VS Code environment, so no additional installation is required.
 
 ## Known Issues
 

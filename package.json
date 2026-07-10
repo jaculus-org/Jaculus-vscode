@@ -1,10 +1,11 @@
 {
     "name": "jaculus",
+    "type": "module",
     "displayName": "Jaculus",
     "description": "Jaculus allows for running JavaScript code on embedded devices.",
     "version": "0.0.17",
     "engines": {
-        "vscode": "^1.72.0"
+        "vscode": "^1.92.0"
     },
     "publisher": "cubicap",
     "pricing": "Free",
@@ -21,7 +22,8 @@
         "Other"
     ],
     "activationEvents": [
-        "onStartupFinished"
+        "onStartupFinished",
+        "onUri"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -100,6 +102,26 @@
                 "command": "jaculus.ConfigWiFi",
                 "title": "Configure WiFi",
                 "category": "Jaculus"
+            },
+            {
+                "command": "jaculus.InstallLibrary",
+                "title": "Install Library",
+                "category": "Jaculus"
+            },
+            {
+                "command": "jaculus.RemoveLibrary",
+                "title": "Remove Library",
+                "category": "Jaculus"
+            },
+            {
+                "command": "jaculus.CreateProject",
+                "title": "Create Project",
+                "category": "Jaculus"
+            },
+            {
+                "command": "jaculus.UpdateProject",
+                "title": "Update Project",
+                "category": "Jaculus"
             }
         ],
         "keybindings": [
@@ -132,7 +154,8 @@
             "jaculus": [
                 {
                     "id": "jaculusView",
-                    "name": "Jaculus"
+                    "name": "Jaculus",
+                    "icon": "images/logo.png"
                 }
             ]
         },
@@ -155,8 +178,8 @@
     "devDependencies": {
         "@types/glob": "^8.1.0",
         "@types/mocha": "^10.0.2",
-        "@types/node": "^16.18.58",
-        "@types/vscode": "^1.72.0",
+        "@types/node": "^18.18.0",
+        "@types/vscode": "1.92.0",
         "@typescript-eslint/eslint-plugin": "^5.62.0",
         "@typescript-eslint/parser": "^5.62.0",
         "@vscode/test-electron": "^2.3.5",
@@ -166,7 +189,11 @@
         "typescript": "^5.2.2"
     },
     "dependencies": {
-        "axios": "^1.7.2",
-        "child_process": "^1.0.2"
+        "@jaculus/common": "^0.1.0",
+        "@jaculus/device": "^0.1.0",
+        "@jaculus/firmware": "^0.1.0",
+        "@jaculus/project": "^0.1.2",
+        "chalk": "^5.6.2",
+        "serialport": "^13.0.0"
     }
 }
