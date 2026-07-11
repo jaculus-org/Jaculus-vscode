@@ -53,6 +53,20 @@ export type ProjectLibrary = {
     version: string;
 };
 
+export type DeviceStorageEntry = {
+    name: string;
+    isDirectory: boolean;
+    size: number;
+};
+
+export type DeviceStorage = {
+    listDirectory: (directory: string) => Promise<DeviceStorageEntry[]>;
+    readFile: (filePath: string) => Promise<Uint8Array>;
+    onDidDisconnect: (callback: () => void) => void;
+};
+
+export type DeviceDisconnectRegistrar = (callback: () => void) => void;
+
 export type AvailableLibrary = {
     id: string;
     description?: string;
@@ -451,22 +465,37 @@ export async function destroyDevice(device: JacDevice): Promise<void> {
     await device.destroy();
 }
 
-export function runUntilDeviceEnd<T>(device: JacDevice, action: Promise<T>): Promise<T> {
+export function runUntilDeviceEnd<T>(
+    device: JacDevice,
+    action: (onDidDisconnect: DeviceDisconnectRegistrar) => Promise<T>
+): Promise<T> {
+    const disconnectCallbacks = new Set<() => void>();
     const disconnected = new Promise<never>((_, reject) => {
-        device.onEnd(() => reject(new Error('Device disconnected')));
+        device.onEnd(() => {
+            for (const callback of disconnectCallbacks) {
+                callback();
+            }
+            reject(new Error('Device disconnected'));
+        });
     });
 
-    return Promise.race([action, disconnected]);
+    return Promise.race([
+        action((callback) => disconnectCallbacks.add(callback)),
+        disconnected,
+    ]);
 }
 
 async function withDevice<T>(
     target: ConnectionTarget,
     logger: JaculusLogger,
-    action: (device: JacDevice) => Promise<T>
+    action: (device: JacDevice, onDidDisconnect: DeviceDisconnectRegistrar) => Promise<T>
 ): Promise<T> {
     const device = await connectToDevice(target, logger);
     try {
-        return await runUntilDeviceEnd(device, action(device));
+        return await runUntilDeviceEnd(
+            device,
+            (onDidDisconnect) => action(device, onDidDisconnect)
+        );
     } finally {
         await destroyDevice(device);
     }
@@ -485,6 +514,46 @@ async function withLockedDevice<T>(
             await device.controller.unlock();
         }
     });
+}
+
+export async function runDeviceStorageSession<T>(
+    device: JacDevice,
+    action: (storage: DeviceStorage) => Promise<T>,
+    onDidDisconnect: DeviceDisconnectRegistrar = (callback) => device.onEnd(callback)
+): Promise<T> {
+    const withStorageLock = async <R>(operation: () => Promise<R>): Promise<R> => {
+        await device.controller.lock();
+        try {
+            return await operation();
+        } finally {
+            await device.controller.unlock();
+        }
+    };
+
+    return action({
+        listDirectory: (directory) => withStorageLock(async () => {
+            const entries = await device.uploader.listDirectory(directory);
+            return entries.map(([name, isDirectory, size]) => ({
+                name,
+                isDirectory,
+                size,
+            }));
+        }),
+        readFile: (filePath) => withStorageLock(() => device.uploader.readFile(filePath)),
+        onDidDisconnect,
+    });
+}
+
+export async function withDeviceStorage<T>(
+    target: ConnectionTarget,
+    logger: JaculusLogger,
+    action: (storage: DeviceStorage) => Promise<T>
+): Promise<T> {
+    return withDevice(
+        target,
+        logger,
+        (device, onDidDisconnect) => runDeviceStorageSession(device, action, onDidDisconnect)
+    );
 }
 
 async function getRegistry(

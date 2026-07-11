@@ -2,11 +2,114 @@ import * as assert from 'assert';
 import type { JacDevice } from '@jaculus/device';
 import chalk from 'chalk';
 
-import { createDeviceWithStreamReady, destroyDevice } from '../../jaculus/integration.js';
+import {
+    createDeviceWithStreamReady,
+    destroyDevice,
+    runUntilDeviceEnd,
+    runDeviceStorageSession,
+} from '../../jaculus/integration.js';
 import { getFlashProgressEvent } from '../../jaculus/flashProgress.js';
 import { getMonitorEcho, getMonitorErrorOutput } from '../../jaculus/monitor.js';
 
 suite('Jaculus Integration Helpers', () => {
+    test('runUntilDeviceEnd fans out disconnect notifications before rejecting', async () => {
+        let disconnectHandler: (() => void) | undefined;
+        let notified = false;
+        const device = {
+            onEnd: (handler: () => void) => { disconnectHandler = handler; },
+        } as unknown as JacDevice;
+
+        const pending = runUntilDeviceEnd(device, async (onDidDisconnect) => {
+            onDidDisconnect(() => { notified = true; });
+            await new Promise<never>(() => undefined);
+        });
+        disconnectHandler?.();
+
+        await assert.rejects(pending, /Device disconnected/);
+        assert.strictEqual(notified, true);
+    });
+
+    test('runDeviceStorageSession releases the lock between storage operations', async () => {
+        let lockCalls = 0;
+        let unlockCalls = 0;
+        const bytes = new Uint8Array([1, 2, 3]);
+        const device = {
+            controller: {
+                lock: async () => { lockCalls++; },
+                unlock: async () => { unlockCalls++; },
+            },
+            uploader: {
+                listDirectory: async () => [
+                    ['code', true, 0],
+                    ['main.js', false, 42],
+                ],
+                readFile: async () => bytes,
+            },
+        } as unknown as JacDevice;
+
+        const result = await runDeviceStorageSession(device, async (storage) => {
+            const entries = await storage.listDirectory('.');
+            assert.strictEqual(lockCalls, 1);
+            assert.strictEqual(unlockCalls, 1);
+
+            const data = await storage.readFile('main.js');
+            assert.strictEqual(lockCalls, 2);
+            assert.strictEqual(unlockCalls, 2);
+            return { entries, data };
+        });
+
+        assert.strictEqual(lockCalls, 2);
+        assert.strictEqual(unlockCalls, 2);
+        assert.deepStrictEqual(result.entries, [
+            { name: 'code', isDirectory: true, size: 0 },
+            { name: 'main.js', isDirectory: false, size: 42 },
+        ]);
+        assert.deepStrictEqual(result.data, bytes);
+    });
+
+    test('runDeviceStorageSession unlocks after a failed storage operation', async () => {
+        let unlockCalls = 0;
+        const device = {
+            controller: {
+                lock: async () => undefined,
+                unlock: async () => { unlockCalls++; },
+            },
+            uploader: {
+                listDirectory: async () => { throw new Error('list failed'); },
+                readFile: async () => new Uint8Array(),
+            },
+        } as unknown as JacDevice;
+
+        await assert.rejects(
+            runDeviceStorageSession(device, (storage) => storage.listDirectory('.')),
+            /list failed/
+        );
+        assert.strictEqual(unlockCalls, 1);
+    });
+
+    test('runDeviceStorageSession exposes device disconnection', async () => {
+        let disconnectHandler: (() => void) | undefined;
+        const device = {
+            controller: {
+                lock: async () => undefined,
+                unlock: async () => undefined,
+            },
+            uploader: {
+                listDirectory: async () => [],
+                readFile: async () => new Uint8Array(),
+            },
+            onEnd: (handler: () => void) => { disconnectHandler = handler; },
+        } as unknown as JacDevice;
+
+        let disconnected = false;
+        await runDeviceStorageSession(device, async (storage) => {
+            storage.onDidDisconnect(() => { disconnected = true; });
+            disconnectHandler?.();
+        });
+
+        assert.strictEqual(disconnected, true);
+    });
+
     test('destroyDevice consumes an unlock rejection before destroying the device', async () => {
         let unlockCalls = 0;
         let destroyed = false;

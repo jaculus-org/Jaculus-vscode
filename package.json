@@ -143,6 +143,11 @@
                 "category": "Jaculus"
             },
             {
+                "command": "jaculus.BrowseDeviceFiles",
+                "title": "Browse Device Files",
+                "category": "Jaculus"
+            },
+            {
                 "command": "jaculus.InstallLibrary",
                 "title": "Install Library",
                 "category": "Jaculus"
@@ -173,6 +178,14 @@
                 "category": "Jaculus"
             }
         ],
+        "menus": {
+            "commandPalette": [
+                {
+                    "command": "jaculus.BrowseDeviceFiles",
+                    "when": "jaculus.fileBrowserRegistered"
+                }
+            ]
+        },
         "keybindings": [
             {
                 "command": "jaculus.BuildFlashMonitor",

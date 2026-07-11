@@ -3,6 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { JacDevice } from '@jaculus/device';
 import {
+    createDeviceBrowserItems,
+    DeviceFileSystemProvider,
+    getDeviceChildPath,
+    getDeviceParentPath,
+} from './deviceFileBrowser.js';
+import {
     addWifiNetwork,
     compileProject,
     connectToDevice,
@@ -34,6 +40,7 @@ import {
     startProgram,
     stopProgram,
     updateLibraries as updateProjectLibraries,
+    withDeviceStorage,
     shouldBuildProject,
     flashProject,
     flashProjectOnDevice,
@@ -89,6 +96,7 @@ class JaculusInterface {
     constructor(
         private context: vscode.ExtensionContext,
         private readonly viewProvider: JaculusViewProvider,
+        private readonly deviceFileSystemProvider: DeviceFileSystemProvider,
         private projectPath: string
     ) {
         this.outputChannel = vscode.window.createOutputChannel('Jaculus');
@@ -646,6 +654,14 @@ class JaculusInterface {
     }
 
     private async stopRunningMonitor(): Promise<void> {
+        const pendingConnection = this.monitorConnection;
+        if (pendingConnection) {
+            try {
+                await pendingConnection;
+            } catch {
+                // The monitor reports connection errors through its own output path.
+            }
+        }
         await this.monitorStop();
     }
 
@@ -653,6 +669,69 @@ class JaculusInterface {
         await this.stopRunningMonitor();
         return operation();
     }
+
+    private async browseDeviceFiles(): Promise<void> {
+        try {
+            const target = this.getConnectedTarget();
+            const selectedFile = await this.runWithClosedMonitor(() =>
+                withDeviceStorage(target, this.getLogger(), async (storage) => {
+                    let currentDirectory = '.';
+                    const cancellation = new vscode.CancellationTokenSource();
+                    storage.onDidDisconnect(() => cancellation.cancel());
+
+                    try {
+                        while (true) {
+                            const entries = await storage.listDirectory(currentDirectory);
+                            const selected = await vscode.window.showQuickPick(
+                                createDeviceBrowserItems(currentDirectory, entries),
+                                { placeHolder: `Device files: ${currentDirectory}` },
+                                cancellation.token
+                            );
+
+                            if (!selected) {
+                                return undefined;
+                            }
+
+                            switch (selected.action) {
+                                case 'parent':
+                                    currentDirectory = getDeviceParentPath(currentDirectory);
+                                    break;
+                                case 'directory':
+                                    if (selected.name) {
+                                        currentDirectory = getDeviceChildPath(currentDirectory, selected.name);
+                                    }
+                                    break;
+                                case 'file': {
+                                    if (!selected.name) {
+                                        break;
+                                    }
+                                    const filePath = getDeviceChildPath(currentDirectory, selected.name);
+                                    return {
+                                        path: filePath,
+                                        data: await storage.readFile(filePath),
+                                    };
+                                }
+                                case 'empty':
+                                    break;
+                            }
+                        }
+                    } finally {
+                        cancellation.dispose();
+                    }
+                })
+            );
+
+            if (!selectedFile) {
+                return;
+            }
+
+            const uri = this.deviceFileSystemProvider.setFile(selectedFile.path, selectedFile.data);
+            await vscode.commands.executeCommand('vscode.open', uri);
+        } catch (error) {
+            this.showError(error, 'Failed to browse device files');
+        }
+    }
+
     private async configWiFi() {
         /* eslint-disable @typescript-eslint/naming-convention */
         const wifiCommands: Record<string, string> = {
@@ -941,6 +1020,7 @@ class JaculusInterface {
             vscode.commands.registerCommand('jaculus.ToggleMinimalMode', () => this.toggleMinimalMode()),
             vscode.commands.registerCommand('jaculus.InstallBoard', () => this.installJaculusBoardVersion()),
             vscode.commands.registerCommand('jaculus.ConfigWiFi', () => this.configWiFi()),
+            vscode.commands.registerCommand('jaculus.BrowseDeviceFiles', () => this.browseDeviceFiles()),
             vscode.commands.registerCommand('jaculus.InstallLibrary', () => this.installLibrary()),
             vscode.commands.registerCommand('jaculus.RemoveLibrary', () => this.removeLibrary()),
             vscode.commands.registerCommand('jaculus.RefreshLibraries', () => this.refreshLibraries()),
@@ -1030,14 +1110,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const jaculusProvider = new JaculusViewProvider(context);
+    const deviceFileSystemProvider = new DeviceFileSystemProvider();
     const treeView = vscode.window.createTreeView('jaculusView', {
         treeDataProvider: jaculusProvider,
         showCollapseAll: false
     });
-    context.subscriptions.push(treeView);
+    context.subscriptions.push(
+        treeView,
+        vscode.workspace.registerFileSystemProvider('jaculus-device', deviceFileSystemProvider, {
+            isCaseSensitive: true,
+            isReadonly: true,
+        })
+    );
 
-    const jaculus = new JaculusInterface(context, jaculusProvider, projectFolder.uri.fsPath);
+    const jaculus = new JaculusInterface(
+        context,
+        jaculusProvider,
+        deviceFileSystemProvider,
+        projectFolder.uri.fsPath
+    );
     jaculus.registerCommands();
+    await vscode.commands.executeCommand('setContext', 'jaculus.fileBrowserRegistered', true);
 }
 
 export function deactivate() { }

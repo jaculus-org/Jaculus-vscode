@@ -201,6 +201,14 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<JaculusTreeI
                 'Show device status'
             ),
             new JaculusTreeItem(
+                'Browse Device Files',
+                vscode.TreeItemCollapsibleState.None,
+                new vscode.ThemeIcon('files'),
+                'browse-device-files',
+                'jaculus.BrowseDeviceFiles',
+                'Browse files stored on the connected device'
+            ),
+            new JaculusTreeItem(
                 'Format Storage',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('trash'),
