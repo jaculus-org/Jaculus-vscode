@@ -3,7 +3,7 @@
     "type": "module",
     "displayName": "Jaculus",
     "description": "Jaculus allows for running JavaScript code on embedded devices.",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "engines": {
         "vscode": "^1.92.0"
     },
