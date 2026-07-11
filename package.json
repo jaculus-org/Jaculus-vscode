@@ -153,6 +153,16 @@
                 "category": "Jaculus"
             },
             {
+                "command": "jaculus.RefreshLibraries",
+                "title": "Refresh Libraries",
+                "category": "Jaculus"
+            },
+            {
+                "command": "jaculus.UpdateLibraries",
+                "title": "Update Libraries",
+                "category": "Jaculus"
+            },
+            {
                 "command": "jaculus.CreateProject",
                 "title": "Create Project",
                 "category": "Jaculus"

@@ -10,7 +10,11 @@ import { Project } from '@jaculus/project';
 import { compileProjectPath } from '@jaculus/project/compiler';
 import { createFromBundle, updateFromBundle } from '@jaculus/project/creation';
 import { extractArchive, loadPackageFromUri } from '@jaculus/project/import';
-import { loadPackageJson } from '@jaculus/project/package';
+import {
+    loadPackageJson,
+    type Dependencies,
+    type PackageJson,
+} from '@jaculus/project/package';
 import { Registry } from '@jaculus/project/registry';
 import { SerialPort } from 'serialport';
 
@@ -520,6 +524,74 @@ export async function listAvailableLibraries(
     const registry = await getRegistry(projectPath, logger);
     const libraries = await registry.listPackages();
     return libraries.sort((left: AvailableLibrary, right: AvailableLibrary) => left.id.localeCompare(right.id));
+}
+
+export async function getLatestLibraryDependencies(
+    dependencies: Dependencies,
+    listVersions: (libraryName: string) => Promise<string[]>
+): Promise<Dependencies> {
+    const entries = await Promise.all(
+        Object.keys(dependencies).map(async (name) => {
+            const versions = await listVersions(name);
+            const latestVersion = versions[0];
+            if (!latestVersion) {
+                throw new Error(`No versions available for ${name}`);
+            }
+            return [name, latestVersion] as const;
+        })
+    );
+    return Object.fromEntries(entries);
+}
+
+export async function replaceDependenciesAndInstall(
+    pkg: PackageJson,
+    dependencies: Dependencies,
+    savePackage: (pkg: PackageJson) => Promise<void>,
+    install: () => Promise<void>
+): Promise<void> {
+    const originalDependencies = { ...pkg.dependencies };
+    pkg.dependencies = dependencies;
+    await savePackage(pkg);
+
+    try {
+        await install();
+    } catch (error) {
+        pkg.dependencies = originalDependencies;
+        await savePackage(pkg);
+        throw error;
+    }
+}
+
+export async function refreshLibraries(
+    projectPath: string,
+    logger: JaculusLogger
+): Promise<void> {
+    const project = new Project(fs, projectPath, logger);
+    const registry = await getRegistry(projectPath, logger);
+    await project.install(registry);
+}
+
+export async function updateLibraries(
+    projectPath: string,
+    logger: JaculusLogger
+): Promise<void> {
+    const project = new Project(fs, projectPath, logger);
+    const registry = await getRegistry(projectPath, logger);
+    const pkg = await project.loadProjectPackageJson();
+    if (Object.keys(pkg.dependencies).length === 0) {
+        return;
+    }
+
+    const dependencies = await getLatestLibraryDependencies(
+        pkg.dependencies,
+        (name) => registry.listVersions(name)
+    );
+    await replaceDependenciesAndInstall(
+        pkg,
+        dependencies,
+        (value) => project.saveProjectPackageJson(value),
+        async () => { await project.install(registry); }
+    );
 }
 
 export async function listProjectTemplates(

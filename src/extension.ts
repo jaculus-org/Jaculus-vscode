@@ -26,12 +26,14 @@ import {
     readStatus,
     readVersion,
     readWifiStatus,
+    refreshLibraries as refreshProjectLibraries,
     removeLibrary as removeProjectLibrary,
     removeWifiNetwork,
     setWifiApMode,
     setWifiStationMode,
     startProgram,
     stopProgram,
+    updateLibraries as updateProjectLibraries,
     shouldBuildProject,
     flashProject,
     flashProjectOnDevice,
@@ -380,6 +382,34 @@ class JaculusInterface {
             this.viewProvider.updateInstalledLibraries(libraries);
         } catch (error) {
             this.showError(error, 'Failed to load installed libraries');
+        }
+    }
+
+    private async refreshLibraries(): Promise<void> {
+        try {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Refreshing libraries',
+                cancellable: false,
+            }, async () => refreshProjectLibraries(this.projectPath, this.getLogger()));
+            await this.refreshInstalledLibraries();
+            vscode.window.showInformationMessage('Libraries refreshed successfully');
+        } catch (error) {
+            this.showError(error, 'Failed to refresh libraries');
+        }
+    }
+
+    private async updateLibraries(): Promise<void> {
+        try {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Updating libraries',
+                cancellable: false,
+            }, async () => updateProjectLibraries(this.projectPath, this.getLogger()));
+            await this.refreshInstalledLibraries();
+            vscode.window.showInformationMessage('Libraries updated successfully');
+        } catch (error) {
+            this.showError(error, 'Failed to update libraries');
         }
     }
 
@@ -913,6 +943,8 @@ class JaculusInterface {
             vscode.commands.registerCommand('jaculus.ConfigWiFi', () => this.configWiFi()),
             vscode.commands.registerCommand('jaculus.InstallLibrary', () => this.installLibrary()),
             vscode.commands.registerCommand('jaculus.RemoveLibrary', () => this.removeLibrary()),
+            vscode.commands.registerCommand('jaculus.RefreshLibraries', () => this.refreshLibraries()),
+            vscode.commands.registerCommand('jaculus.UpdateLibraries', () => this.updateLibraries()),
             vscode.commands.registerCommand('jaculus.UpdateProject', () => this.updateProject()),
         );
 

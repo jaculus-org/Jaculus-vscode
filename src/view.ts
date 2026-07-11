@@ -271,6 +271,22 @@ export class JaculusViewProvider implements vscode.TreeDataProvider<JaculusTreeI
     private getLibraryItems(): JaculusTreeItem[] {
         const items: JaculusTreeItem[] = [
             new JaculusTreeItem(
+                'Refresh Libraries',
+                vscode.TreeItemCollapsibleState.None,
+                new vscode.ThemeIcon('refresh'),
+                'refresh-libraries',
+                'jaculus.RefreshLibraries',
+                'Reinstall the library versions declared by this project'
+            ),
+            new JaculusTreeItem(
+                'Update Libraries',
+                vscode.TreeItemCollapsibleState.None,
+                new vscode.ThemeIcon('versions'),
+                'update-libraries',
+                'jaculus.UpdateLibraries',
+                'Update direct project libraries to their newest versions'
+            ),
+            new JaculusTreeItem(
                 'Install Library',
                 vscode.TreeItemCollapsibleState.None,
                 new vscode.ThemeIcon('cloud-download'),
