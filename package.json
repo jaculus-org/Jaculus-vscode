@@ -3,7 +3,7 @@
     "type": "module",
     "displayName": "Jaculus",
     "description": "Jaculus allows for running JavaScript code on embedded devices.",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "engines": {
         "vscode": "^1.92.0"
     },
@@ -27,23 +27,45 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
-        "languages": [{
-            "id": "jacly",
-            "aliases": ["Jacly", "jacly"],
-            "extensions": [".jacly"],
-            "icon": { "light": "./images/jacly.png", "dark": "./images/jacly.png" }
-        }],
-        "grammars": [{
-            "language": "jacly",
-            "scopeName": "source.jacly",
-            "path": "./syntaxes/jacly.tmLanguage.json"
-        }],
-        "jsonLanguageParticipants": [{ "languageId": "jacly" }],
-        "customEditors": [{
-            "viewType": "jacly.editor",
-            "displayName": "Jacly Editor",
-            "selector": [{ "filenamePattern": "*.jacly" }]
-        }],
+        "languages": [
+            {
+                "id": "jacly",
+                "aliases": [
+                    "Jacly",
+                    "jacly"
+                ],
+                "extensions": [
+                    ".jacly"
+                ],
+                "icon": {
+                    "light": "./images/jacly.png",
+                    "dark": "./images/jacly.png"
+                }
+            }
+        ],
+        "grammars": [
+            {
+                "language": "jacly",
+                "scopeName": "source.jacly",
+                "path": "./syntaxes/jacly.tmLanguage.json"
+            }
+        ],
+        "jsonLanguageParticipants": [
+            {
+                "languageId": "jacly"
+            }
+        ],
+        "customEditors": [
+            {
+                "viewType": "jacly.editor",
+                "displayName": "Jacly Editor",
+                "selector": [
+                    {
+                        "filenamePattern": "*.jacly"
+                    }
+                ]
+            }
+        ],
         "commands": [
             {
                 "command": "jaculus.Build",
