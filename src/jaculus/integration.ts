@@ -25,6 +25,11 @@ export type ConnectionTarget =
     | { type: 'port'; value: string }
     | { type: 'socket'; value: string };
 
+export type LockingController = {
+    lock: () => PromiseLike<void>;
+    unlock: () => PromiseLike<void>;
+};
+
 export type JaculusLogger = {
     info: (message?: string) => void;
     warn: (message?: string) => void;
@@ -125,6 +130,32 @@ export function getBoardFirmwareUrl(boardId: string, version: string): string {
 }
 
 const DEFAULT_BAUDRATE = 921600;
+
+export async function runWithControllerLock<T>(
+    controller: LockingController,
+    action: () => Promise<T>,
+    logger?: JaculusLogger
+): Promise<T> {
+    await controller.lock();
+    let actionError: unknown;
+    try {
+        return await action();
+    } catch (error) {
+        actionError = error;
+        throw error;
+    } finally {
+        try {
+            await controller.unlock();
+        } catch (unlockError) {
+            if (actionError) {
+                logger?.error(`Controller unlock failed: ${String(unlockError)}`);
+            } else {
+                throw unlockError;
+            }
+        }
+    }
+}
+
 function parseSocketValue(value: string): { host: string; port: number } {
     const separatorIndex = value.lastIndexOf(':');
     if (separatorIndex === -1) {
@@ -591,6 +622,37 @@ export async function flashProject(
             await device.controller.start(entryPoint);
         }
     });
+}
+
+export async function flashProjectOnDevice(
+    projectPath: string,
+    device: JacDevice,
+    logger: JaculusLogger,
+    onProgress?: (progress: FlashProgress) => void,
+    autoStart = true
+): Promise<void> {
+    const project = new Project(fs, projectPath, logger);
+    const bundle = await project.getFlashFiles();
+
+    await runWithControllerLock(device.controller, async () => {
+        try {
+            await device.controller.stop();
+        } catch (error) {
+            logger.verbose(`Error stopping device: ${String(error)}`);
+        }
+
+        let previousCurrent = 0;
+        await device.uploader.uploadFiles(bundle, 'code', (progress: UploaderProgress) => {
+            const event = getFlashProgressEvent(progress, previousCurrent);
+            previousCurrent = progress.current;
+            onProgress?.(event);
+        });
+
+        if (autoStart) {
+            const entryPoint = bundle.files['package.json'] ? '' : 'index.js';
+            await device.controller.start(entryPoint);
+        }
+    }, logger);
 }
 
 async function fetchPackageBundle(

@@ -34,6 +34,7 @@ import {
     stopProgram,
     shouldBuildProject,
     flashProject,
+    flashProjectOnDevice,
 } from './jaculus/integration.js';
 import type { JaculusLogger, BoardVariant, BoardVersion } from './jaculus/integration.js';
 import { LogLevel, createLogger } from './jaculus/logging.js';
@@ -264,19 +265,6 @@ class JaculusInterface {
         });
     }
 
-    private async startProgramOnMonitorDevice(): Promise<void> {
-        if (!this.monitorDevice) {
-            throw new Error('Monitor is not connected');
-        }
-
-        await this.monitorDevice.controller.lock();
-        try {
-            await this.monitorDevice.controller.start('');
-        } finally {
-            await this.monitorDevice.controller.unlock();
-        }
-    }
-
     private createMonitorTerminal(): void {
         this.monitorPty = new JaculusMonitorPseudoterminal(
             async () => undefined,
@@ -308,11 +296,8 @@ class JaculusInterface {
         });
     }
 
-    private async connectMonitor(startProgramAfterConnect: boolean): Promise<void> {
+    private async connectMonitor(): Promise<void> {
         if (this.monitorDevice) {
-            if (startProgramAfterConnect) {
-                await this.startProgramOnMonitorDevice();
-            }
             return;
         }
 
@@ -327,9 +312,6 @@ class JaculusInterface {
                     this.getLogger(),
                     (device) => this.bindMonitorDevice(device)
                 );
-                if (startProgramAfterConnect) {
-                    await this.startProgramOnMonitorDevice();
-                }
                 this.monitorPty?.write(getMonitorStatusOutput('Connected. Press Ctrl+C to stop monitoring.\n'));
             } catch (error) {
                 this.monitorPty?.write(getMonitorStatusOutput(`Connection failed: ${error instanceof Error ? error.message : String(error)}\n`));
@@ -343,24 +325,49 @@ class JaculusInterface {
         return this.monitorConnection;
     }
 
-    private async monitor(startProgramAfterConnect = false): Promise<void> {
+    private async monitor(): Promise<void> {
         if (!this.terminalJaculus || !this.monitorPty) {
             this.createMonitorTerminal();
         }
 
         this.terminalJaculus?.show();
-        await this.connectMonitor(startProgramAfterConnect);
+        await this.connectMonitor();
     }
 
     private async buildFlashMonitor(): Promise<void> {
-        if (!await this.build(false) || !await this.flash(false)) {
+        if (!await this.build(false)) {
             return;
         }
 
         try {
-            await this.monitor(true);
+            await this.monitor();
+            const device = this.monitorDevice;
+            if (!device) {
+                throw new Error('Monitor connection was cancelled');
+            }
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Flashing Jaculus device',
+                cancellable: false,
+            }, async (progress: vscode.Progress<{ message?: string; increment?: number }>) => {
+                await flashProjectOnDevice(
+                    this.projectPath,
+                    device,
+                    this.getLogger(),
+                    (event) => {
+                        if (event.message.length > 0) {
+                            this.outputChannel.appendLine(event.message);
+                        }
+                        progress.report({ message: event.message, increment: event.increment });
+                    },
+                    true
+                );
+            });
+            vscode.window.showInformationMessage('Flash finished successfully');
         } catch (error) {
-            this.showError(error, 'Failed to start monitor');
+            await this.monitorStop();
+            this.showError(error, 'Build, flash and monitor failed');
         }
     }
 
