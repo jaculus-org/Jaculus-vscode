@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { JacDevice } from '@jaculus/device';
+import { WifiMode } from '@jaculus/device';
 import {
     createDeviceBrowserItems,
     DeviceFileSystemProvider,
@@ -23,11 +24,13 @@ import {
     getBoardFirmwareUrl,
     installFirmwarePackage,
     installLibraryVersion,
+    getWifiMode,
     listAvailableLibraries,
     listBoardVersions,
     listBoards,
     listInstalledLibraries,
     listLibraryVersions,
+    listSavedWifiNetworks,
     listSerialPorts,
     readStatus,
     readVersion,
@@ -736,6 +739,7 @@ class JaculusInterface {
         /* eslint-disable @typescript-eslint/naming-convention */
         const wifiCommands: Record<string, string> = {
             "$(search) Display current WiFi config": "wifi-get",
+            "$(list-unordered) List saved WiFi networks": "wifi-ls",
             "$(add) Add a WiFi network": "wifi-add",
             "$(remove) Remove a WiFi network": "wifi-rm",
             "$(debug-disconnect) Disable WiFi": "wifi-disable",
@@ -752,6 +756,9 @@ class JaculusInterface {
             switch (command) {
                 case "wifi-get":
                     this.wifiGet();
+                    break;
+                case "wifi-ls":
+                    this.wifiList();
                     break;
                 case "wifi-ap":
                     this.wifiAp();
@@ -787,22 +794,32 @@ class JaculusInterface {
         }
     }
 
-    private async getWifiCredentials(readPassword = true): Promise<{ ssid: string, password: string | undefined } | undefined> {
+    private async wifiList() {
+        try {
+            const target = this.getConnectedTarget();
+            const networks = await this.runWithClosedMonitor(async () =>
+                listSavedWifiNetworks(target, this.getLogger())
+            );
+            this.outputChannel.show(true);
+            this.outputChannel.appendLine(networks.length === 0 ? 'No saved networks' : networks.join('\n'));
+        } catch (error) {
+            this.showError(error, 'Failed to list saved WiFi networks');
+        }
+    }
+
+    private async getWifiCredentials(): Promise<{ ssid: string, password: string | undefined } | undefined> {
         const ssid = await vscode.window.showInputBox({ placeHolder: 'Enter WiFi network SSID', prompt: 'WiFi network SSID' });
         if (!ssid) {
             return undefined;
         }
 
-        let password: string | undefined = undefined;
-        if (readPassword) {
-            password = await vscode.window.showInputBox({ placeHolder: 'Enter WiFi network password', prompt: 'WiFi network password', password: true });
-        }
+        const password = await vscode.window.showInputBox({ placeHolder: 'Enter WiFi network password', prompt: 'WiFi network password', password: true });
         return { ssid, password };
     }
 
     private async wifiAp() {
         try {
-            const credentials = await this.getWifiCredentials(true);
+            const credentials = await this.getWifiCredentials();
             if (!credentials) {
                 return;
             }
@@ -819,7 +836,7 @@ class JaculusInterface {
 
     private async wifiAdd() {
         try {
-            const credentials = await this.getWifiCredentials(true);
+            const credentials = await this.getWifiCredentials();
             if (!credentials) {
                 return;
             }
@@ -828,6 +845,20 @@ class JaculusInterface {
             await this.runWithClosedMonitor(async () => {
                 await addWifiNetwork(target, ssid, password ?? '', this.getLogger());
             });
+
+            const currentMode = await this.runWithClosedMonitor(async () => getWifiMode(target, this.getLogger()));
+            if (currentMode !== WifiMode.STATION) {
+                const connectLabel = 'Switch to station mode (connect to wifi)';
+                const keepLabel = 'Keep current WiFi mode';
+                const choice = await vscode.window.showQuickPick([connectLabel, keepLabel], { placeHolder: `Added WiFi network: ${ssid}. Connect to WiFi now?` });
+                if (choice === connectLabel) {
+                    if (await this.configureStationMode(target, ssid)) {
+                        vscode.window.showInformationMessage(`Added WiFi network: ${ssid}. Connected to WiFi.`);
+                    }
+                    return;
+                }
+            }
+
             vscode.window.showInformationMessage(`Added WiFi network: ${ssid}`);
         } catch (error) {
             this.showError(error, 'Failed to add WiFi network');
@@ -836,12 +867,18 @@ class JaculusInterface {
 
     private async wifiRm() {
         try {
-            const credentials = await this.getWifiCredentials(false);
-            if (!credentials) {
+            const target = this.getConnectedTarget();
+            const savedNetworks = await this.runWithClosedMonitor(async () =>
+                listSavedWifiNetworks(target, this.getLogger())
+            );
+            if (savedNetworks.length === 0) {
+                vscode.window.showInformationMessage('No saved networks to remove.');
                 return;
             }
-            const { ssid } = credentials;
-            const target = this.getConnectedTarget();
+            const ssid = await vscode.window.showQuickPick(savedNetworks, { placeHolder: 'Select a saved network to remove' });
+            if (!ssid) {
+                return;
+            }
             await this.runWithClosedMonitor(async () => {
                 await removeWifiNetwork(target, ssid, this.getLogger());
             });
@@ -851,13 +888,53 @@ class JaculusInterface {
         }
     }
 
+    private async configureStationMode(target: ConnectionTarget, preferredSsid?: string): Promise<boolean> {
+        const bestSignalLabel = 'Best signal (auto-connect to any known network)';
+        const specificLabel = preferredSsid ? `Specific network: ${preferredSsid}` : 'Specific network...';
+        const modeChoice = await vscode.window.showQuickPick([specificLabel, bestSignalLabel], { placeHolder: 'Select a station mode' });
+        if (!modeChoice) {
+            return false;
+        }
+
+        let specificSsid: string | undefined;
+        if (modeChoice === specificLabel) {
+            if (preferredSsid) {
+                specificSsid = preferredSsid;
+            } else {
+                const savedNetworks = await this.runWithClosedMonitor(async () =>
+                    listSavedWifiNetworks(target, this.getLogger())
+                );
+                if (savedNetworks.length === 0) {
+                    vscode.window.showInformationMessage('No saved networks. Add one first using "Add a WiFi network".');
+                    return false;
+                }
+                specificSsid = await vscode.window.showQuickPick(savedNetworks, { placeHolder: 'Select a saved network' });
+                if (!specificSsid) {
+                    return false;
+                }
+            }
+        }
+
+        const enableFallbackLabel = 'Enable AP fallback';
+        const disableFallbackLabel = 'Disable AP fallback';
+        const fallbackChoice = await vscode.window.showQuickPick([disableFallbackLabel, enableFallbackLabel], { placeHolder: 'Fall back to AP mode if no network is found?' });
+        if (!fallbackChoice) {
+            return false;
+        }
+        const apFallback = fallbackChoice === enableFallbackLabel;
+
+        await this.runWithClosedMonitor(async () => {
+            await setWifiStationMode(target, this.getLogger(), { specificSsid, apFallback });
+        });
+        return true;
+    }
+
     private async wifiSta() {
         try {
             const target = this.getConnectedTarget();
-            await this.runWithClosedMonitor(async () => {
-                await setWifiStationMode(target, this.getLogger());
-            });
-            vscode.window.showInformationMessage('Connected to WiFi network');
+            if (await this.configureStationMode(target)) {
+                vscode.window.showInformationMessage('Connected to WiFi network');
+            }
         } catch (error) {
             this.showError(error, 'Failed to switch WiFi to station mode');
         }

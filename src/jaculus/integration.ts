@@ -862,6 +862,15 @@ export async function formatStorage(
     });
 }
 
+export async function getWifiMode(
+    target: ConnectionTarget,
+    logger: JaculusLogger
+): Promise<WifiMode> {
+    return withLockedDevice(target, logger, async (device) => {
+        return device.controller.getWifiMode();
+    });
+}
+
 export async function readWifiStatus(
     target: ConnectionTarget,
     logger: JaculusLogger
@@ -874,6 +883,15 @@ export async function readWifiStatus(
         const currentIp = await device.controller.getCurrentWifiIp();
 
         return `Current IP: ${currentIp}\n\nWiFi Mode: ${WifiMode[mode]}\n\nStation Mode: ${WifiStaMode[staMode]}\nStation Specific SSID: ${staSpecific}\n\nAP SSID: ${apSsid}\n`;
+    });
+}
+
+export async function listSavedWifiNetworks(
+    target: ConnectionTarget,
+    logger: JaculusLogger
+): Promise<string[]> {
+    return withLockedDevice(target, logger, async (device) => {
+        return device.controller.listWifiNetworks();
     });
 }
 
@@ -915,12 +933,18 @@ export async function setWifiApMode(
 
 export async function setWifiStationMode(
     target: ConnectionTarget,
-    logger: JaculusLogger
+    logger: JaculusLogger,
+    options: { specificSsid?: string; apFallback: boolean }
 ): Promise<void> {
     await withLockedDevice(target, logger, async (device) => {
         await device.controller.setWifiMode(WifiMode.STATION);
-        await device.controller.setWifiStaMode(WifiStaMode.BEST_SIGNAL);
-        await device.controller.setWifiStaApFallback(true);
+        if (options.specificSsid) {
+            await device.controller.setWifiStaMode(WifiStaMode.SPECIFIC_SSID);
+            await device.controller.setWifiStaSpecific(options.specificSsid);
+        } else {
+            await device.controller.setWifiStaMode(WifiStaMode.BEST_SIGNAL);
+        }
+        await device.controller.setWifiStaApFallback(options.apFallback);
     });
 }
 

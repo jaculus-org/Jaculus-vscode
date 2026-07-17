@@ -262,7 +262,7 @@
         "@blockly/plugin-cross-tab-copy-paste": "^8.0.8",
         "@blockly/workspace-backpack": "^7.0.11",
         "@jaculus/common": "^0.1.0",
-        "@jaculus/device": "^0.1.0",
+        "@jaculus/device": "^0.1.3",
         "@jaculus/firmware": "^0.1.0",
         "@jaculus/project": "^0.1.2",
         "@kuband/react-blockly": "^10.0.1",
