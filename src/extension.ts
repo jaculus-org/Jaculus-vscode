@@ -43,12 +43,11 @@ import {
     startProgram,
     stopProgram,
     updateLibraries as updateProjectLibraries,
-    withDeviceStorage,
     shouldBuildProject,
     flashProject,
-    flashProjectOnDevice,
 } from './jaculus/integration.js';
 import type { JaculusLogger, BoardVariant, BoardVersion } from './jaculus/integration.js';
+import { DeviceManager, type DeviceLease } from './jaculus/deviceManager.js';
 import { LogLevel, createLogger } from './jaculus/logging.js';
 import { getMonitorEcho, getMonitorErrorOutput, getMonitorStatusOutput } from './jaculus/monitor.js';
 import { DEFAULT_TERMINAL_NAME, JaculusMonitorPseudoterminal } from './jaculus/monitorTerminal.js';
@@ -86,6 +85,8 @@ class JaculusInterface {
     private outputChannel: vscode.OutputChannel;
     private terminalJaculus: vscode.Terminal | null = null;
     private monitorDevice: JacDevice | null = null;
+    private monitorLease: DeviceLease | null = null;
+    private readonly deviceManager: DeviceManager;
     private monitorPty: JaculusMonitorPseudoterminal | null = null;
     private monitorConnection: Promise<void> | null = null;
 
@@ -104,6 +105,16 @@ class JaculusInterface {
     ) {
         this.outputChannel = vscode.window.createOutputChannel('Jaculus');
         this.context.subscriptions.push(this.outputChannel);
+        this.deviceManager = new DeviceManager({
+            getTarget: () => this.getConnectedTarget(),
+            connect: (target) => connectToDevice(target, this.getLogger()),
+            destroy: destroyDevice,
+            logger: {
+                debug: (message) => this.getLogger().debug(message),
+                verbose: (message) => this.getLogger().verbose(message),
+            },
+        });
+        this.context.subscriptions.push({ dispose: () => { void this.deviceManager.dispose(); } });
 
         this.selectedComPort = this.context.globalState.get<string>(ContextKey.selectedComPort) ?? null;
         this.selectedSocket = this.context.globalState.get<string>(ContextKey.selectedSocket) ?? null;
@@ -176,6 +187,7 @@ class JaculusInterface {
             }
 
             await this.context.globalState.update(ContextKey.lastSelectedConnection, this.lastSelectedConnection);
+            await this.deviceManager.dispose();
             this.updateSelectedPortMenu(true);
         } catch (error) {
             this.showError(error, 'Error listing ports');
@@ -234,23 +246,18 @@ class JaculusInterface {
                 title: 'Flashing Jaculus device',
                 cancellable: false,
             }, async (progress: vscode.Progress<{ message?: string; increment?: number }>) => {
-                await this.runWithClosedMonitor(async () => {
-                    await flashProject(
-                        this.projectPath,
-                        target,
-                        this.getLogger(),
-                        (event) => {
-                            if (event.message.length > 0) {
-                                this.outputChannel.appendLine(event.message);
-                            }
-                            progress.report({
-                                message: event.message,
-                                increment: event.increment,
-                            });
-                        },
-                        autoStart
-                    );
-                });
+                await flashProject(
+                    this.projectPath,
+                    this.getLogger(),
+                    this.deviceManager,
+                    (event) => {
+                        if (event.message.length > 0) {
+                            this.outputChannel.appendLine(event.message);
+                        }
+                        progress.report({ message: event.message, increment: event.increment });
+                    },
+                    autoStart
+                );
             });
             vscode.window.showInformationMessage('Flash finished successfully');
             return true;
@@ -269,7 +276,7 @@ class JaculusInterface {
         device.programError.onData((data: Uint8Array) => {
             this.monitorPty?.write(getMonitorErrorOutput(errorDecoder.decode(data, { stream: true })));
         });
-        device.onEnd(() => {
+        this.monitorLease?.onDidDisconnect(() => {
             if (this.monitorDevice !== device) {
                 return;
             }
@@ -320,11 +327,9 @@ class JaculusInterface {
 
         this.monitorConnection = (async () => {
             try {
-                this.monitorDevice = await connectToDevice(
-                    this.getConnectedTarget(),
-                    this.getLogger(),
-                    (device) => this.bindMonitorDevice(device)
-                );
+                this.monitorLease = await this.deviceManager.acquire();
+                this.monitorDevice = this.monitorLease.device;
+                this.bindMonitorDevice(this.monitorDevice);
                 this.monitorPty?.write(getMonitorStatusOutput('Connected. Press Ctrl+C to stop monitoring.\n'));
             } catch (error) {
                 this.monitorPty?.write(getMonitorStatusOutput(`Connection failed: ${error instanceof Error ? error.message : String(error)}\n`));
@@ -354,8 +359,8 @@ class JaculusInterface {
 
         try {
             await this.monitor();
-            const device = this.monitorDevice;
-            if (!device) {
+            const lease = this.monitorLease;
+            if (!lease) {
                 throw new Error('Monitor connection was cancelled');
             }
 
@@ -364,10 +369,10 @@ class JaculusInterface {
                 title: 'Flashing Jaculus device',
                 cancellable: false,
             }, async (progress: vscode.Progress<{ message?: string; increment?: number }>) => {
-                await flashProjectOnDevice(
+                await flashProject(
                     this.projectPath,
-                    device,
                     this.getLogger(),
+                    this.deviceManager,
                     (event) => {
                         if (event.message.length > 0) {
                             this.outputChannel.appendLine(event.message);
@@ -526,17 +531,8 @@ class JaculusInterface {
 
     private async start() {
         try {
-            if (this.monitorDevice) {
-                await this.monitorDevice.controller.lock();
-                try {
-                    await this.monitorDevice.controller.start('');
-                } finally {
-                    await this.monitorDevice.controller.unlock();
-                }
-            } else {
-                const target = this.getConnectedTarget();
-                await startProgram(target, this.getLogger());
-            }
+            const target = this.getConnectedTarget();
+            await startProgram(this.deviceManager);
             vscode.window.showInformationMessage('Program started');
         } catch (error) {
             this.showError(error, 'Failed to start program');
@@ -545,17 +541,8 @@ class JaculusInterface {
 
     private async stop() {
         try {
-            if (this.monitorDevice) {
-                await this.monitorDevice.controller.lock();
-                try {
-                    await this.monitorDevice.controller.stop();
-                } finally {
-                    await this.monitorDevice.controller.unlock();
-                }
-            } else {
-                const target = this.getConnectedTarget();
-                await stopProgram(target, this.getLogger());
-            }
+            const target = this.getConnectedTarget();
+            await stopProgram(this.deviceManager);
             vscode.window.showInformationMessage('Program stopped');
         } catch (error) {
             this.showError(error, 'Failed to stop program');
@@ -564,9 +551,7 @@ class JaculusInterface {
     private async showVersion() {
         try {
             const target = this.getConnectedTarget();
-            const version = await this.runWithClosedMonitor(async () =>
-                readVersion(target, this.getLogger())
-            );
+            const version = await readVersion(this.deviceManager);
             this.outputChannel.show(true);
             this.outputChannel.appendLine('Firmware version:');
             version.forEach(line => this.outputChannel.appendLine(`  ${line}`));
@@ -578,9 +563,7 @@ class JaculusInterface {
     private async showStatus() {
         try {
             const target = this.getConnectedTarget();
-            const status = await this.runWithClosedMonitor(async () =>
-                readStatus(target, this.getLogger())
-            );
+            const status = await readStatus(this.deviceManager);
             this.outputChannel.show(true);
             this.outputChannel.appendLine(`Running: ${status.running}`);
             if (!status.running) {
@@ -604,9 +587,7 @@ class JaculusInterface {
 
         try {
             const target = this.getConnectedTarget();
-            await this.runWithClosedMonitor(async () => {
-                await formatStorage(target, this.getLogger());
-            });
+            await formatStorage(this.deviceManager);
             vscode.window.showInformationMessage('Storage formatted');
         } catch (error) {
             this.showError(error, 'Failed to format storage');
@@ -614,10 +595,11 @@ class JaculusInterface {
     }
 
     private async monitorStop(): Promise<void> {
-        const device = this.monitorDevice;
+        const lease = this.monitorLease;
+        this.monitorLease = null;
         this.monitorDevice = null;
-        if (device) {
-            await destroyDevice(device);
+        if (lease) {
+            await lease.release();
         }
     }
 
@@ -656,44 +638,22 @@ class JaculusInterface {
         }
     }
 
-    private async stopRunningMonitor(): Promise<void> {
-        const pendingConnection = this.monitorConnection;
-        if (pendingConnection) {
-            try {
-                await pendingConnection;
-            } catch {
-                // The monitor reports connection errors through its own output path.
-            }
-        }
-        await this.monitorStop();
-    }
-
-    private async runWithClosedMonitor<T>(operation: () => Promise<T>): Promise<T> {
-        await this.stopRunningMonitor();
-        return operation();
-    }
-
     private async browseDeviceFiles(): Promise<void> {
         try {
-            const target = this.getConnectedTarget();
-            const selectedFile = await this.runWithClosedMonitor(() =>
-                withDeviceStorage(target, this.getLogger(), async (storage) => {
-                    let currentDirectory = '.';
-                    const cancellation = new vscode.CancellationTokenSource();
-                    storage.onDidDisconnect(() => cancellation.cancel());
+            let currentDirectory = '.';
+            while (true) {
+                const entries = await this.deviceManager.runLocked(async (device) => {
+                    const result = await device.uploader.listDirectory(currentDirectory);
+                    return result.map(([name, isDirectory, size]) => ({ name, isDirectory, size }));
+                });
+                const selected = await vscode.window.showQuickPick(
+                    createDeviceBrowserItems(currentDirectory, entries),
+                    { placeHolder: `Device files: ${currentDirectory}` },
+                );
 
-                    try {
-                        while (true) {
-                            const entries = await storage.listDirectory(currentDirectory);
-                            const selected = await vscode.window.showQuickPick(
-                                createDeviceBrowserItems(currentDirectory, entries),
-                                { placeHolder: `Device files: ${currentDirectory}` },
-                                cancellation.token
-                            );
-
-                            if (!selected) {
-                                return undefined;
-                            }
+                if (!selected) {
+                    return;
+                }
 
                             switch (selected.action) {
                                 case 'parent':
@@ -709,27 +669,15 @@ class JaculusInterface {
                                         break;
                                     }
                                     const filePath = getDeviceChildPath(currentDirectory, selected.name);
-                                    return {
-                                        path: filePath,
-                                        data: await storage.readFile(filePath),
-                                    };
+                    const data = await this.deviceManager.runLocked((device) => device.uploader.readFile(filePath));
+                    const uri = this.deviceFileSystemProvider.setFile(filePath, data);
+                    await vscode.commands.executeCommand('vscode.open', uri);
+                    return;
                                 }
                                 case 'empty':
                                     break;
                             }
-                        }
-                    } finally {
-                        cancellation.dispose();
-                    }
-                })
-            );
-
-            if (!selectedFile) {
-                return;
             }
-
-            const uri = this.deviceFileSystemProvider.setFile(selectedFile.path, selectedFile.data);
-            await vscode.commands.executeCommand('vscode.open', uri);
         } catch (error) {
             this.showError(error, 'Failed to browse device files');
         }
@@ -783,10 +731,7 @@ class JaculusInterface {
 
     private async wifiGet() {
         try {
-            const target = this.getConnectedTarget();
-            const status = await this.runWithClosedMonitor(async () =>
-                readWifiStatus(target, this.getLogger())
-            );
+            const status = await readWifiStatus(this.deviceManager);
             this.outputChannel.show(true);
             this.outputChannel.appendLine(status);
         } catch (error) {
@@ -796,10 +741,7 @@ class JaculusInterface {
 
     private async wifiList() {
         try {
-            const target = this.getConnectedTarget();
-            const networks = await this.runWithClosedMonitor(async () =>
-                listSavedWifiNetworks(target, this.getLogger())
-            );
+            const networks = await listSavedWifiNetworks(this.deviceManager);
             this.outputChannel.show(true);
             this.outputChannel.appendLine(networks.length === 0 ? 'No saved networks' : networks.join('\n'));
         } catch (error) {
@@ -824,10 +766,7 @@ class JaculusInterface {
                 return;
             }
             const { ssid, password } = credentials;
-            const target = this.getConnectedTarget();
-            await this.runWithClosedMonitor(async () => {
-                await setWifiApMode(target, ssid, password, this.getLogger());
-            });
+            await setWifiApMode(ssid, password, this.deviceManager);
             vscode.window.showInformationMessage('WiFi AP mode configured');
         } catch (error) {
             this.showError(error, 'Failed to configure WiFi AP mode');
@@ -841,18 +780,15 @@ class JaculusInterface {
                 return;
             }
             const { ssid, password } = credentials;
-            const target = this.getConnectedTarget();
-            await this.runWithClosedMonitor(async () => {
-                await addWifiNetwork(target, ssid, password ?? '', this.getLogger());
-            });
+            await addWifiNetwork(ssid, password ?? '', this.deviceManager);
 
-            const currentMode = await this.runWithClosedMonitor(async () => getWifiMode(target, this.getLogger()));
+            const currentMode = await getWifiMode(this.deviceManager);
             if (currentMode !== WifiMode.STATION) {
                 const connectLabel = 'Switch to station mode (connect to wifi)';
                 const keepLabel = 'Keep current WiFi mode';
                 const choice = await vscode.window.showQuickPick([connectLabel, keepLabel], { placeHolder: `Added WiFi network: ${ssid}. Connect to WiFi now?` });
                 if (choice === connectLabel) {
-                    if (await this.configureStationMode(target, ssid)) {
+                    if (await this.configureStationMode(ssid)) {
                         vscode.window.showInformationMessage(`Added WiFi network: ${ssid}. Connected to WiFi.`);
                     }
                     return;
@@ -867,10 +803,7 @@ class JaculusInterface {
 
     private async wifiRm() {
         try {
-            const target = this.getConnectedTarget();
-            const savedNetworks = await this.runWithClosedMonitor(async () =>
-                listSavedWifiNetworks(target, this.getLogger())
-            );
+            const savedNetworks = await listSavedWifiNetworks(this.deviceManager);
             if (savedNetworks.length === 0) {
                 vscode.window.showInformationMessage('No saved networks to remove.');
                 return;
@@ -879,16 +812,14 @@ class JaculusInterface {
             if (!ssid) {
                 return;
             }
-            await this.runWithClosedMonitor(async () => {
-                await removeWifiNetwork(target, ssid, this.getLogger());
-            });
+            await removeWifiNetwork(ssid, this.deviceManager);
             vscode.window.showInformationMessage(`Removed WiFi network: ${ssid}`);
         } catch (error) {
             this.showError(error, 'Failed to remove WiFi network');
         }
     }
 
-    private async configureStationMode(target: ConnectionTarget, preferredSsid?: string): Promise<boolean> {
+    private async configureStationMode(preferredSsid?: string): Promise<boolean> {
         const bestSignalLabel = 'Best signal (auto-connect to any known network)';
         const specificLabel = preferredSsid ? `Specific network: ${preferredSsid}` : 'Specific network...';
         const modeChoice = await vscode.window.showQuickPick([specificLabel, bestSignalLabel], { placeHolder: 'Select a station mode' });
@@ -901,9 +832,7 @@ class JaculusInterface {
             if (preferredSsid) {
                 specificSsid = preferredSsid;
             } else {
-                const savedNetworks = await this.runWithClosedMonitor(async () =>
-                    listSavedWifiNetworks(target, this.getLogger())
-                );
+                const savedNetworks = await listSavedWifiNetworks(this.deviceManager);
                 if (savedNetworks.length === 0) {
                     vscode.window.showInformationMessage('No saved networks. Add one first using "Add a WiFi network".');
                     return false;
@@ -923,16 +852,13 @@ class JaculusInterface {
         }
         const apFallback = fallbackChoice === enableFallbackLabel;
 
-        await this.runWithClosedMonitor(async () => {
-            await setWifiStationMode(target, this.getLogger(), { specificSsid, apFallback });
-        });
+        await setWifiStationMode({ specificSsid, apFallback }, this.deviceManager);
         return true;
     }
 
     private async wifiSta() {
         try {
-            const target = this.getConnectedTarget();
-            if (await this.configureStationMode(target)) {
+            if (await this.configureStationMode()) {
                 vscode.window.showInformationMessage('Connected to WiFi network');
             }
         } catch (error) {
@@ -942,10 +868,7 @@ class JaculusInterface {
 
     private async wifiDisable() {
         try {
-            const target = this.getConnectedTarget();
-            await this.runWithClosedMonitor(async () => {
-                await disableWifi(target, this.getLogger());
-            });
+            await disableWifi(this.deviceManager);
             vscode.window.showInformationMessage('Disabled WiFi');
         } catch (error) {
             this.showError(error, 'Failed to disable WiFi');
@@ -1033,13 +956,12 @@ class JaculusInterface {
                 return;
             }
 
-            await this.runWithClosedMonitor(async () => {
-                await installFirmwarePackage(
-                    firmwareUrl,
-                    selectedComPort,
-                    eraseStorage === 'No'
-                );
-            });
+            await this.deviceManager.dispose();
+            await installFirmwarePackage(
+                firmwareUrl,
+                selectedComPort,
+                eraseStorage === 'No'
+            );
             vscode.window.showInformationMessage(`Firmware installed from ${firmwareUrl}`);
         } catch (error) {
             this.showError(error, 'Error while installing firmware');

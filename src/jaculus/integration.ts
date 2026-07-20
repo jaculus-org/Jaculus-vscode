@@ -19,6 +19,7 @@ import { Registry } from '@jaculus/project/registry';
 import { SerialPort } from 'serialport';
 
 import { getFlashProgressEvent } from './flashProgress.js';
+import type { DeviceManager } from './deviceManager.js';
 
 export type SerialPortInfo = {
     path: string;
@@ -28,11 +29,6 @@ export type SerialPortInfo = {
 export type ConnectionTarget =
     | { type: 'port'; value: string }
     | { type: 'socket'; value: string };
-
-export type LockingController = {
-    lock: () => PromiseLike<void>;
-    unlock: () => PromiseLike<void>;
-};
 
 export type JaculusLogger = {
     info: (message?: string) => void;
@@ -52,20 +48,6 @@ export type ProjectLibrary = {
     name: string;
     version: string;
 };
-
-export type DeviceStorageEntry = {
-    name: string;
-    isDirectory: boolean;
-    size: number;
-};
-
-export type DeviceStorage = {
-    listDirectory: (directory: string) => Promise<DeviceStorageEntry[]>;
-    readFile: (filePath: string) => Promise<Uint8Array>;
-    onDidDisconnect: (callback: () => void) => void;
-};
-
-export type DeviceDisconnectRegistrar = (callback: () => void) => void;
 
 export type AvailableLibrary = {
     id: string;
@@ -148,31 +130,6 @@ export function getBoardFirmwareUrl(boardId: string, version: string): string {
 }
 
 const DEFAULT_BAUDRATE = 921600;
-
-export async function runWithControllerLock<T>(
-    controller: LockingController,
-    action: () => Promise<T>,
-    logger?: JaculusLogger
-): Promise<T> {
-    await controller.lock();
-    let actionError: unknown;
-    try {
-        return await action();
-    } catch (error) {
-        actionError = error;
-        throw error;
-    } finally {
-        try {
-            await controller.unlock();
-        } catch (unlockError) {
-            if (actionError) {
-                logger?.error(`Controller unlock failed: ${String(unlockError)}`);
-            } else {
-                throw unlockError;
-            }
-        }
-    }
-}
 
 function parseSocketValue(value: string): { host: string; port: number } {
     const separatorIndex = value.lastIndexOf(':');
@@ -465,97 +422,6 @@ export async function destroyDevice(device: JacDevice): Promise<void> {
     await device.destroy();
 }
 
-export function runUntilDeviceEnd<T>(
-    device: JacDevice,
-    action: (onDidDisconnect: DeviceDisconnectRegistrar) => Promise<T>
-): Promise<T> {
-    const disconnectCallbacks = new Set<() => void>();
-    const disconnected = new Promise<never>((_, reject) => {
-        device.onEnd(() => {
-            for (const callback of disconnectCallbacks) {
-                callback();
-            }
-            reject(new Error('Device disconnected'));
-        });
-    });
-
-    return Promise.race([
-        action((callback) => disconnectCallbacks.add(callback)),
-        disconnected,
-    ]);
-}
-
-async function withDevice<T>(
-    target: ConnectionTarget,
-    logger: JaculusLogger,
-    action: (device: JacDevice, onDidDisconnect: DeviceDisconnectRegistrar) => Promise<T>
-): Promise<T> {
-    const device = await connectToDevice(target, logger);
-    try {
-        return await runUntilDeviceEnd(
-            device,
-            (onDidDisconnect) => action(device, onDidDisconnect)
-        );
-    } finally {
-        await destroyDevice(device);
-    }
-}
-
-async function withLockedDevice<T>(
-    target: ConnectionTarget,
-    logger: JaculusLogger,
-    action: (device: JacDevice) => Promise<T>
-): Promise<T> {
-    return withDevice(target, logger, async (device) => {
-        await device.controller.lock();
-        try {
-            return await action(device);
-        } finally {
-            await device.controller.unlock();
-        }
-    });
-}
-
-export async function runDeviceStorageSession<T>(
-    device: JacDevice,
-    action: (storage: DeviceStorage) => Promise<T>,
-    onDidDisconnect: DeviceDisconnectRegistrar = (callback) => device.onEnd(callback)
-): Promise<T> {
-    const withStorageLock = async <R>(operation: () => Promise<R>): Promise<R> => {
-        await device.controller.lock();
-        try {
-            return await operation();
-        } finally {
-            await device.controller.unlock();
-        }
-    };
-
-    return action({
-        listDirectory: (directory) => withStorageLock(async () => {
-            const entries = await device.uploader.listDirectory(directory);
-            return entries.map(([name, isDirectory, size]) => ({
-                name,
-                isDirectory,
-                size,
-            }));
-        }),
-        readFile: (filePath) => withStorageLock(() => device.uploader.readFile(filePath)),
-        onDidDisconnect,
-    });
-}
-
-export async function withDeviceStorage<T>(
-    target: ConnectionTarget,
-    logger: JaculusLogger,
-    action: (storage: DeviceStorage) => Promise<T>
-): Promise<T> {
-    return withDevice(
-        target,
-        logger,
-        (device, onDidDisconnect) => runDeviceStorageSession(device, action, onDidDisconnect)
-    );
-}
-
 async function getRegistry(
     projectPath: string,
     logger: JaculusLogger
@@ -736,15 +602,15 @@ export async function removeLibrary(
 
 export async function flashProject(
     projectPath: string,
-    target: ConnectionTarget,
     logger: JaculusLogger,
+    manager: DeviceManager,
     onProgress?: (progress: FlashProgress) => void,
     autoStart = true
 ): Promise<void> {
     const project = new Project(fs, projectPath, logger);
     const bundle = await project.getFlashFiles();
 
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         try {
             await device.controller.stop();
         } catch (error) {
@@ -763,37 +629,6 @@ export async function flashProject(
             await device.controller.start(entryPoint);
         }
     });
-}
-
-export async function flashProjectOnDevice(
-    projectPath: string,
-    device: JacDevice,
-    logger: JaculusLogger,
-    onProgress?: (progress: FlashProgress) => void,
-    autoStart = true
-): Promise<void> {
-    const project = new Project(fs, projectPath, logger);
-    const bundle = await project.getFlashFiles();
-
-    await runWithControllerLock(device.controller, async () => {
-        try {
-            await device.controller.stop();
-        } catch (error) {
-            logger.verbose(`Error stopping device: ${String(error)}`);
-        }
-
-        let previousCurrent = 0;
-        await device.uploader.uploadFiles(bundle, 'code', (progress: UploaderProgress) => {
-            const event = getFlashProgressEvent(progress, previousCurrent);
-            previousCurrent = progress.current;
-            onProgress?.(event);
-        });
-
-        if (autoStart) {
-            const entryPoint = bundle.files['package.json'] ? '' : 'index.js';
-            await device.controller.start(entryPoint);
-        }
-    }, logger);
 }
 
 async function fetchPackageBundle(
@@ -822,60 +657,53 @@ export async function updateProjectFromPackage(
 }
 
 export async function startProgram(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.controller.start('');
     });
 }
 
 export async function stopProgram(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.controller.stop();
     });
 }
 
 export async function readVersion(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<string[]> {
-    return withDevice(target, logger, async (device) => device.controller.version());
+    return manager.runLocked(async (device) => device.controller.version());
 }
 
 export async function readStatus(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<{ running: boolean; exitCode?: number; status: string }> {
-    return withLockedDevice(target, logger, async (device) => device.controller.status());
+    return manager.runLocked(async (device) => device.controller.status());
 }
 
 export async function formatStorage(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.uploader.formatStorage();
     });
 }
 
 export async function getWifiMode(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<WifiMode> {
-    return withLockedDevice(target, logger, async (device) => {
+    return manager.runLocked(async (device) => {
         return device.controller.getWifiMode();
     });
 }
 
 export async function readWifiStatus(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<string> {
-    return withLockedDevice(target, logger, async (device) => {
+    return manager.runLocked(async (device) => {
         const mode = await device.controller.getWifiMode();
         const staMode = await device.controller.getWifiStaMode();
         const staSpecific = await device.controller.getWifiStaSpecific();
@@ -887,42 +715,38 @@ export async function readWifiStatus(
 }
 
 export async function listSavedWifiNetworks(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<string[]> {
-    return withLockedDevice(target, logger, async (device) => {
+    return manager.runLocked(async (device) => {
         return device.controller.listWifiNetworks();
     });
 }
 
 export async function addWifiNetwork(
-    target: ConnectionTarget,
     ssid: string,
     password: string,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.controller.addWifiNetwork(ssid, password);
     });
 }
 
 export async function removeWifiNetwork(
-    target: ConnectionTarget,
     ssid: string,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.controller.removeWifiNetwork(ssid);
     });
 }
 
 export async function setWifiApMode(
-    target: ConnectionTarget,
     ssid: string,
     password: string | undefined,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.controller.setWifiMode(WifiMode.AP);
         await device.controller.setWifiApSsid(ssid);
         if (password !== undefined) {
@@ -932,11 +756,10 @@ export async function setWifiApMode(
 }
 
 export async function setWifiStationMode(
-    target: ConnectionTarget,
-    logger: JaculusLogger,
-    options: { specificSsid?: string; apFallback: boolean }
+    options: { specificSsid?: string; apFallback: boolean },
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.controller.setWifiMode(WifiMode.STATION);
         if (options.specificSsid) {
             await device.controller.setWifiStaMode(WifiStaMode.SPECIFIC_SSID);
@@ -949,10 +772,9 @@ export async function setWifiStationMode(
 }
 
 export async function disableWifi(
-    target: ConnectionTarget,
-    logger: JaculusLogger
+    manager: DeviceManager
 ): Promise<void> {
-    await withLockedDevice(target, logger, async (device) => {
+    await manager.runLocked(async (device) => {
         await device.controller.setWifiMode(WifiMode.DISABLED);
     });
 }

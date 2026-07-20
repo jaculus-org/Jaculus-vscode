@@ -1,7 +1,11 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import type { DeviceStorageEntry } from './jaculus/integration.js';
+type DeviceStorageEntry = {
+    name: string;
+    isDirectory: boolean;
+    size: number;
+};
 
 export type DeviceBrowserItem = vscode.QuickPickItem & {
     action: 'parent' | 'directory' | 'file' | 'empty';
